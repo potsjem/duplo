@@ -55,7 +55,7 @@ pub const Foo = struct {
     }
 
     fn genlab(self: Foo, id: u32) !void {
-        try self.writer.print("{}{}:", .{LPREFIX, id});
+        try self.writer.print("{c}{d}:", .{LPREFIX, id});
     }
 
     fn ngen1(self: Foo, comptime fmt: []const u8, inst: []const u8, n: u32) !void {
@@ -142,14 +142,14 @@ pub const Foo = struct {
         try self.gentext();
         try self.spill();
         self.cgldlab(id);
-        self.load();
+        self.acc = true;
     }
 
-    fn genlit(self: *Foo, v: u32) !void {
+    pub fn genlit(self: *Foo, v: u32) !void {
         try self.gentext();
         try self.spill();
-        self.cglit(v);
-        self.load();
+        try self.cglit(v);
+        self.acc = true;
     }
 
     //NOTE, probably unused
@@ -157,77 +157,77 @@ pub const Foo = struct {
         try self.gentext();
         try self.spill();
         self.cgargc();
-        self.load();
+        self.acc = true;
     }
 
 
     fn genand(self: *Foo) !void {
         try self.gentext();
         try self.cgpop2();
-        self.cgand();
+        try self.cgand();
     }
 
     fn genior(self: *Foo) !void {
         try self.gentext();
         try self.cgpop2();
-        self.cgior();
+        try self.cgior();
     }
 
     fn genxor(self: *Foo) !void {
         try self.gentext();
         try self.cgpop2();
-        self.cgxor();
+        try self.cgxor();
     }
 
     fn genshl(self: *Foo, swapped: bool) !void {
         try self.gentext();
         try self.cgpop2();
-        if (swapped) self.cgswap();
-        self.cgshl();
+        if (swapped) try self.cgswap();
+        try self.cgshl();
     }
 
     fn genshr(self: *Foo, swapped: bool) !void {
         try self.gentext();
         try self.cgpop2();
-        if (swapped) self.cgswap();
-        self.cgshr();
+        if (swapped) try self.cgswap();
+        try self.cgshr();
     }
 
     fn genadd(self: *Foo) !void {
         try self.gentext();
         try self.cgpop2();
-        self.cgadd();
+        try self.cgadd();
     }
 
     fn gensub(self: *Foo, swapped: bool) !void {
         try self.gentext();
         try self.cgpop2();
-        if (swapped) self.cgswap();
-        self.cgsub();
+        if (swapped) try self.cgswap();
+        try self.cgsub();
     }
 
     fn genmul(self: *Foo) !void {
         try self.gentext();
         try self.cgpop2();
-        self.cgmul();
+        try self.cgmul();
     }
 
     fn gendiv(self: *Foo, swapped: bool) !void {
         try self.gentext();
         try self.cgpop2();
-        if (swapped) self.cgswap();
-        self.cgdiv();
+        if (swapped) try self.cgswap();
+        try self.cgdiv();
     }
 
     fn genmod(self: *Foo, swapped: bool) !void {
         try self.gentext();
         try self.cgpop2();
-        if (swapped) self.cgswap();
-        self.cgmod();
+        if (swapped) try self.cgswap();
+        try self.cgmod();
     }
 
-    pub fn genbinop(self: *Foo, op: Op) void {
-        switch (op) {
+    pub fn genbinop(self: *Foo, op: Op) !void {
+        try switch (op) {
             .add => self.genadd(),
             .sub => self.gensub(true),
             .mul => self.genmul(),
@@ -244,17 +244,76 @@ pub const Foo = struct {
             .gt => self.cggt(),
             .lte => self.cglte(),
             .gte => self.cggte(),
-        }
+        };
+    }
+
+    fn genpush(self: *Foo) !void {
+        try self.gentext();
+        try self.cgpush();
     }
 
 
+
+    fn cglit(self: *Foo, v: u32) !void {
+        try self.ngen1("{s}\t${d},%eax", "movl", v);
+    }
 
     fn cgtext(self: *Foo) !void {
         try self.gen(".text");
     }
 
+    fn cgpush(self: *Foo) !void {
+        try self.gen("pushl\t%eax");
+    }
+
     fn cgpop2(self: *Foo) !void {
         try self.gen("popl\t%ecx");
+    }
+
+    fn cgswap(self: *Foo) !void {
+        try self.gen("xchgl\t%eax,%ecx");
+    }
+
+    fn cgand(self: *Foo) !void {
+        try self.gen("andl\t%ecx,%eax");
+    }
+
+    fn cgxor(self: *Foo) !void {
+        try self.gen("xorl\t%ecx,%eax");
+    }
+
+    fn cgior(self: *Foo) !void {
+        try self.gen("orl\t%ecx,%eax");
+    }
+
+    fn cgadd(self: *Foo) !void {
+        try self.gen("addl\t%ecx,%eax");
+    }
+
+    fn cgsub(self: *Foo) !void {
+        try self.gen("subl\t%ecx,%eax");
+    }
+
+    fn cgmul(self: *Foo) !void {
+        try self.gen("imull\t%ecx,%eax");
+    }
+
+    fn cgdiv(self: *Foo) !void {
+        try self.gen("cdq");
+        try self.gen("idivl\t%ecx");
+    }
+
+    fn cgmod(self: *Foo) !void {
+        try self.cgdiv();
+        try self.gen("movl\t%edx,%eax");
+    }
+
+    fn cgshl(self: *Foo) !void {
+        try self.gen("shll\t%cl,%eax");
+    }
+
+    fn cgshr(self: *Foo) !void {
+        try self.gen("sarl\t%cl,%eax");
     }
 
     fn cgcmp(self: *Foo, inst: []const u8) !void {

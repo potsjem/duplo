@@ -8,5 +8,7 @@ pub fn main() !void {
         .writer = stdout.any(),
     };
 
-    foo.genbinop(.add);
+    try foo.genlit(10);
+    try foo.genlit(20);
+    try foo.genbinop(.eq);
 }
