@@ -43,6 +43,11 @@ const Op = enum {
     mul,
     div,
 
+    const Power = struct {
+        lbp: u8,
+        rbp: u8,
+    };
+
     fn kind(self: Op) Node.Kind {
         return switch (self) {
             .add => .add,
@@ -51,32 +56,40 @@ const Op = enum {
             .div => .div,
         };
     }
+
+    fn infixPower(self: Op) ?Power {
+        return switch (self) {
+            .add, .sub => .{ .lbp = 3, .rbp = 4 },
+            .mul, .div => .{ .lbp = 5, .rbp = 6 },
+            //else => null,
+        };
+    }
 };
 
 fn pushNode(
     nodes: *ArrayList(Node),
     node: Node,
-) !void {
+) !u32 {
     const idx = nodes.items.len;
     try nodes.append(node);
-    return idx;
+    return @intCast(idx);
 }
 
 fn pushExtra(
     extra: *ArrayList(u32),
     node: u32,
-) !void {
+) !u32 {
     const idx = extra.items.len;
     try extra.append(node);
-    return idx;
+    return @intCast(idx);
 }
 
-fn peek(input: []const u8, idx: *const u32) Token {
+fn peek(input: []const Token, idx: *const u32) Token {
     return input[idx.*];
 }
 
-fn skip(input: []const u8, idx: *u32) void {
-    switch (input[idx.*]) {
+fn skip(input: []const Token, idx: *u32) void {
+    switch (input[idx.*].kind) {
         .eof => {},
         else => idx.* += 1,
     }
@@ -86,7 +99,18 @@ pub fn parse(allocator: Allocator, input: []const Token) !Ast {
     var nodes = ArrayList(Node).init(allocator);
     var extra = ArrayList(u32).init(allocator);
 
-    _ = input;
+    var idx: u32 = 0;
+
+    while (true) {
+        switch (peek(input, &idx).kind) {
+            .integer,
+            .identifier => {
+                const node = try parseExpr(input, &idx, &nodes, &extra, 0);
+                try nodes.append(node);
+            },
+            else => break,
+        }
+    }
 
     return .{
         .nodes = try nodes.toOwnedSlice(),
@@ -101,7 +125,7 @@ fn parseExpr(
     extra: *ArrayList(u32),
     bp: u8,
 ) !Node {
-    var lhs: Node = switch (peek(input, idx)) {
+    var lhs: Node = switch (peek(input, idx).kind) {
         .integer => .{
             .main = idx.*,
             .kind = .integer,
@@ -119,7 +143,7 @@ fn parseExpr(
 
     while (true) {
         const odx = idx.*;
-        const op: Op = switch (peek(input, idx)) {
+        const op: Op = switch (peek(input, idx).kind) {
             .@"+" => .add,
             .@"-" => .sub,
             .@"*" => .mul,
@@ -137,7 +161,7 @@ fn parseExpr(
             skip(input, idx);
 
             const lnd = try pushNode(nodes, lhs);
-            const rhs = try parseExpr(input, idx, nodes, extra);
+            const rhs = try parseExpr(input, idx, nodes, extra, p.rbp);
             const rnd = try pushNode(nodes, rhs);
 
             lhs = .{
@@ -148,6 +172,8 @@ fn parseExpr(
                     .rhs = rnd,
                 },
             };
+
+            continue;
         }
 
         panic("Unhandled op: {}", .{op});

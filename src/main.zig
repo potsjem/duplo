@@ -13,7 +13,7 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     const source = try cwd()
-        .readFileAllocOptions(allocator, "main.dup", std.math.maxInt(u32), null, .of(u8), 0);
+        .readFileAllocOptions(allocator, "main.dup", std.math.maxInt(u32), null, @alignOf(u8), 0);
     defer allocator.free(source);
 
     const tokens = try Lexer.lex(allocator, source);
@@ -24,6 +24,9 @@ pub fn main() !void {
 
     const ast = try Parser.parse(allocator, tokens);
     defer ast.deinit(allocator);
+
+    for (ast.nodes) |node|
+        std.debug.print("node.{s}: '{s}'\n", .{@tagName(node.kind), tokens[node.main].slice(source)});
 
     var foo = zgen.Foo{
         .writer = stdout.any(),
