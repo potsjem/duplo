@@ -1,5 +1,8 @@
 const std = @import("std");
 
+const symbol = @import("symbol.zig");
+const SymbolTable = symbol.SymbolTable;
+
 const GPREFIX = 'C';
 const LPREFIX = 'L';
 
@@ -132,10 +135,22 @@ pub const Foo = struct {
     }
 
 
-    fn genaddr(self: Foo, y: u32) !void {
-        _ = self;
-        _ = y;
-        unreachable;
+    pub fn genaddr(self: *Foo, table: SymbolTable, ident: []const u8) !void {
+        try self.gentext();
+        try self.spill();
+
+        const entry = table.get(ident).?;
+        switch (entry.storage) {
+            .public => {
+                try self.cgldga(try gsym(ident));
+            },
+            .auto => {
+                const addr = entry.value.?.addr;
+                try self.cgldla(addr);
+            },
+        }
+
+        self.acc = true;
     }
 
     fn genldlab(self: *Foo, id: u32) !void {
@@ -254,12 +269,20 @@ pub const Foo = struct {
 
 
 
+    fn cgtext(self: *Foo) !void {
+        try self.gen(".text");
+    }
+
     fn cglit(self: *Foo, v: u32) !void {
         try self.ngen1("{s}\t${d},%eax", "movl", v);
     }
 
-    fn cgtext(self: *Foo) !void {
-        try self.gen(".text");
+    fn cgldla(self: *Foo, v: u32) !void {
+        try self.ngen1("{s}\t{d}(%ebp),%eax", "leal", v);
+    }
+
+    fn cgldga(self: *Foo, v: []const u8) !void {
+        try self.sgen("{s}\t${s},%eax", "movl", v);
     }
 
     fn cgpush(self: *Foo) !void {

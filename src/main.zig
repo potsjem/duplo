@@ -8,6 +8,9 @@ const Lexer = @import("lexer.zig");
 const Parser = @import("parser.zig");
 const zgen = @import("zg386.zig");
 
+const symbol = @import("symbol.zig");
+const SymbolTable = symbol.SymbolTable;
+
 pub fn main() !void {
     var gpa: DebugAllocator = .init;
     const allocator = gpa.allocator();
@@ -28,11 +31,20 @@ pub fn main() !void {
     for (ast.nodes) |node|
         std.debug.print("node.{s}: '{s}'\n", .{@tagName(node.kind), tokens[node.main].slice(source)});
 
+    var table = SymbolTable.init(allocator);
+    try table.put("foo", .{
+        .storage = .auto,
+        .value = .{ .addr = 1000 },
+        .typ = .{ .integer = .{ .signed = false, .bits = 64 } },
+    });
+
     var foo = zgen.Foo{
         .writer = stdout.any(),
     };
 
     try foo.genlit(10);
-    try foo.genlit(20);
-    try foo.genbinop(.eq);
+    try foo.genaddr(table, "foo");
+    //try foo.genlit(20);
+    //try foo.genbinop(.eq);
+    try foo.genbinop(.add);
 }
