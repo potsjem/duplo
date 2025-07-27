@@ -49,11 +49,11 @@ pub const Foo = struct {
             try self.genpush();
     }
 
-    fn genraw(self: Foo, s: []const u8) !void {
+    pub fn genraw(self: Foo, s: []const u8) !void {
         try self.writer.print("{s}", .{s});
     }
 
-    fn gen(self: Foo, s: []const u8) !void {
+    pub fn gen(self: Foo, s: []const u8) !void {
         try self.writer.print("\t{s}\n", .{s});
     }
 
@@ -85,7 +85,7 @@ pub const Foo = struct {
         try self.writer.print("\n", .{});
     }
 
-    fn sgen(self: Foo, comptime fmt: []const u8, inst: []const u8, str: []const u8) !void {
+    pub fn sgen(self: Foo, comptime fmt: []const u8, inst: []const u8, str: []const u8) !void {
         try self.writer.print("\t", .{});
         try self.writer.print(fmt, .{inst, str});
         try self.writer.print("\n", .{});
@@ -125,13 +125,13 @@ pub const Foo = struct {
     }
 
 
-    fn genname(self: Foo, name: []const u8) !void {
+    pub fn genname(self: Foo, name: []const u8) !void {
         try self.genraw(try gsym(name));
-        try self.genraw(":");
+        try self.genraw(":\n");
     }
 
-    fn genpublic(self: Foo, name: []const u8) !void {
-        self.cgpublic(try gsym(name));
+    pub fn genpublic(self: Foo, name: []const u8) !void {
+        try self.cgpublic(try gsym(name));
     }
 
 
@@ -262,6 +262,44 @@ pub const Foo = struct {
         };
     }
 
+    pub fn genjump(self: *Foo, id: u32) !void {
+        try self.gentext();
+        try self.cgjump(id);
+    }
+
+    pub fn genbrtrue(self: *Foo, id: u32) !void {
+        try self.gentext();
+        try self.cgbrtrue(id);
+    }
+
+    pub fn genbrfalse(self: *Foo, id: u32) !void {
+        try self.gentext();
+        try self.cgbrfalse(id);
+    }
+
+    pub fn gencall(self: *Foo, name: []const u8) !void {
+        try self.gentext();
+        try self.spill();
+        try self.cgcall(try gsym(name));
+        self.acc = true;
+    }
+
+    pub fn gencalr(self: *Foo) !void {
+        try self.gentext();
+        try self.cgcalr();
+        self.acc = true;
+    }
+
+    pub fn genentry(self: *Foo) !void {
+        try self.gentext();
+        try self.cgentry();
+    }
+
+    pub fn genexit(self: *Foo) !void {
+        try self.gentext();
+        try self.cgexit();
+    }
+
     fn genpush(self: *Foo) !void {
         try self.gentext();
         try self.cgpush();
@@ -271,6 +309,10 @@ pub const Foo = struct {
 
     fn cgtext(self: *Foo) !void {
         try self.gen(".text");
+    }
+
+    fn cgpublic(self: Foo, name: []const u8) !void {
+        try self.ngen1(".globl\t{s} // {d}", name, 0);
     }
 
     fn cglit(self: *Foo, v: u32) !void {
@@ -372,5 +414,36 @@ pub const Foo = struct {
 
     fn cggte(self: *Foo) !void {
         try self.cgcmp("jl");
+    }
+
+    fn cgbr(self: *Foo, instr: []const u8, id: u32) !void {
+        try self.gen("orl\t%eax,%eax");
+        try self.lgen1("{s}\t{c}{d}", instr, id);
+    }
+
+    fn cgbrtrue(self: *Foo, id: u32) !void {
+        try self.cgbr("jnz", id);
+    }
+
+    fn cgbrfalse(self: *Foo, id: u32) !void {
+        try self.cgbr("jz", id);
+    }
+
+    fn cgjump(self: *Foo, id: u32) !void {
+        try self.lgen1("{s}\t{c}{d}", "jmp", id);
+    }
+
+    fn cgcall(self: *Foo, name: []const u8) !void {
+        try self.sgen("{s}\t{s}", "call", name);
+    }
+
+    fn cgentry(self: *Foo) !void {
+        try self.gen("pushl\t%ebp");
+        try self.gen("movl\t%esp,%ebp");
+    }
+
+    fn cgexit(self: *Foo) !void {
+        try self.gen("popl\t%ebp");
+        try self.gen("ret");
     }
 };

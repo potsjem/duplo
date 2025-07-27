@@ -1,1 +1,7 @@
-10 + hello - 11
+fn balls() i32
+    return 42;
+
+fn main() i32 {
+    20 - 10 + 2;
+    return 10 + balls();
+};

@@ -28,11 +28,10 @@ pub fn main() !void {
     const ast = try Parser.parse(allocator, tokens);
     defer ast.deinit(allocator);
 
-    for (ast.nodes) |node|
-        std.debug.print("node.{s}: '{s}'\n", .{@tagName(node.kind), tokens[node.main].slice(source)});
+    ast.debug(tokens, source, 0, 0);
 
     var table = SymbolTable.init(allocator);
-    try table.put("foo", .{
+    try table.put("hello", .{
         .storage = .auto,
         .value = .{ .addr = 1000 },
         .typ = .{ .integer = .{ .signed = false, .bits = 64 } },
@@ -42,9 +41,17 @@ pub fn main() !void {
         .writer = stdout.any(),
     };
 
-    try foo.genlit(10);
-    try foo.genaddr(table, "foo");
-    //try foo.genlit(20);
-    //try foo.genbinop(.eq);
-    try foo.genbinop(.add);
+    //try foo.genpublic("main");
+    //try foo.genname("main");
+
+    //try foo.genentry();
+    try ast.emit(tokens, source, table, &foo, 0);
+
+    try foo.genraw(".section .note.GNU-stack,\"\"");
+
+    //try foo.genlit(10);
+    //try foo.genaddr(table, "foo");
+    ////try foo.genlit(20);
+    ////try foo.genbinop(.eq);
+    //try foo.genbinop(.add);
 }

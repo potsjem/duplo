@@ -1,20 +1,23 @@
 const std = @import("std");
 const panic = std.debug.panic;
+const stringToEnum = std.meta.stringToEnum;
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
+const StaticStringMap = std.StaticStringMap;
 
 const State = enum {
     initial,
     integer,
     identifier,
+    comment,
 };
 
 pub const Token = struct {
     kind: Kind,
     idx: u32,
 
-    const Kind = enum {
+    pub const Kind = enum {
         eof,
         integer,
         identifier,
@@ -22,6 +25,13 @@ pub const Token = struct {
         @"-",
         @"*",
         @"/",
+        @"(",
+        @")",
+        @"{",
+        @"}",
+        @";",
+        @"fn",
+        @"return",
     };
 
     pub fn slice(self: Token, input: [:0]const u8) []const u8 {
@@ -51,6 +61,13 @@ pub const Token = struct {
             .@"-" => "-",
             .@"*" => "*",
             .@"/" => "/",
+            .@"(" => "(",
+            .@")" => ")",
+            .@"{" => "{",
+            .@"}" => "}",
+            .@";" => ";",
+            .@"fn" => "fn",
+            .@"return" => "return",
         };
     }
 };
@@ -100,9 +117,59 @@ pub fn lex(allocator: Allocator, input: [:0]const u8) ![]Token {
                 idx += 1;
                 continue :state .initial;
             },
-            '/' => {
+            '/' => switch (input[idx+1]) {
+                '/' => {
+                    continue :state .comment;
+                },
+                else => {
+                    try tokens.append(.{
+                        .kind = .@"/",
+                        .idx = idx,
+                    });
+
+                    idx += 1;
+                    continue :state .initial;
+                },
+            },
+            '(' => {
                 try tokens.append(.{
-                    .kind = .@"/",
+                    .kind = .@"(",
+                    .idx = idx,
+                });
+
+                idx += 1;
+                continue :state .initial;
+            },
+            ')' => {
+                try tokens.append(.{
+                    .kind = .@")",
+                    .idx = idx,
+                });
+
+                idx += 1;
+                continue :state .initial;
+            },
+            '{' => {
+                try tokens.append(.{
+                    .kind = .@"{",
+                    .idx = idx,
+                });
+
+                idx += 1;
+                continue :state .initial;
+            },
+            '}' => {
+                try tokens.append(.{
+                    .kind = .@"}",
+                    .idx = idx,
+                });
+
+                idx += 1;
+                continue :state .initial;
+            },
+            ';' => {
+                try tokens.append(.{
+                    .kind = .@";",
                     .idx = idx,
                 });
 
@@ -139,7 +206,23 @@ pub fn lex(allocator: Allocator, input: [:0]const u8) ![]Token {
                 idx += 1;
                 continue :sub input[idx];
             },
-            else => continue :state .initial,
+            else => {
+                const token = &tokens.items[tokens.items.len-1];
+                const slice = token.slice(input);
+                token.kind = stringToEnum(Token.Kind, slice)
+                    orelse .identifier;
+
+                continue :state .initial;
+            },
+        },
+        .comment => sub: switch (input[idx]) {
+            0, '\n' => {
+                continue :state .initial;
+            },
+            else => {
+                idx += 1;
+                continue :sub input[idx];
+            },
         },
     }
 
