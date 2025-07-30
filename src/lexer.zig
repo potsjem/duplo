@@ -32,6 +32,8 @@ pub const Token = struct {
         @";",
         @"fn",
         @"return",
+        @"and",
+        @"or",
     };
 
     pub fn slice(self: Token, input: [:0]const u8) []const u8 {
@@ -68,6 +70,8 @@ pub const Token = struct {
             .@";" => ";",
             .@"fn" => "fn",
             .@"return" => "return",
+            .@"and" => "and",
+            .@"or" => "or",
         };
     }
 };

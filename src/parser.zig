@@ -64,7 +64,7 @@ pub const Ast = struct {
             },
             .identifier => {
                 const name = tokens[node.main].slice(input);
-                try foo.genaddr(table, name);
+                try foo.genload(table, name);
             },
             .block => {
                 const slice = self.extraSlice(node.extra.lhs);
@@ -94,6 +94,28 @@ pub const Ast = struct {
                 try self.emit(tokens, input, table, foo, node.extra.lhs);
                 try self.emit(tokens, input, table, foo, node.extra.rhs);
                 try foo.genbinop(.div);
+            },
+            .logand => {
+                const lab = foo.label();
+
+                try self.emit(tokens, input, table, foo, node.extra.lhs);
+                try foo.genbrfalse(lab);
+                foo.acc = false;
+
+                try self.emit(tokens, input, table, foo, node.extra.rhs);
+                try foo.genlabel(lab);
+                try foo.genbool();
+            },
+            .logior => {
+                const lab = foo.label();
+
+                try self.emit(tokens, input, table, foo, node.extra.lhs);
+                try foo.genbrtrue(lab);
+                foo.acc = false;
+
+                try self.emit(tokens, input, table, foo, node.extra.rhs);
+                try foo.genlabel(lab);
+                try foo.genbool();
             },
             .ret => {
                 try self.emit(tokens, input, table, foo, node.extra.lhs);
@@ -142,7 +164,9 @@ pub const Ast = struct {
             .add,
             .sub,
             .mul,
-            .div => {
+            .div,
+            .logand,
+            .logior => {
                 self.debug(tokens, input, node.extra.lhs, depth+1);
                 self.debug(tokens, input, node.extra.rhs, depth+1);
             },
@@ -170,6 +194,8 @@ const Node = struct {
         sub,
         mul,
         div,
+        logand,
+        logior,
         ret,
     };
 
@@ -184,6 +210,8 @@ const Op = enum {
     sub,
     mul,
     div,
+    logand,
+    logior,
     ret,
 
     const Power = struct {
@@ -197,6 +225,8 @@ const Op = enum {
             .sub => .sub,
             .mul => .mul,
             .div => .div,
+            .logand => .logand,
+            .logior => .logior,
             .ret => .ret,
         };
     }
@@ -208,8 +238,10 @@ const Op = enum {
         };
     }
 
+    //TODO, reorganize and standardize
     fn infixPower(self: Op) ?Power {
         return switch (self) {
+            .logand, .logior => .{ .lbp = 1, .rbp = 2 },
             .add, .sub => .{ .lbp = 3, .rbp = 4 },
             .mul, .div => .{ .lbp = 5, .rbp = 6 },
             else => null,
@@ -413,6 +445,8 @@ fn parseExpr(
             .@"-" => .sub,
             .@"*" => .mul,
             .@"/" => .div,
+            .@"and" => .logand,
+            .@"or" => .logior,
             .@"(" => {
                 //TODO, add args
                 _ = try expect(input, idx, .@"(");

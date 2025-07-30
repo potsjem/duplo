@@ -34,7 +34,7 @@ pub fn main() !void {
     try table.put("hello", .{
         .storage = .auto,
         .value = .{ .addr = 1000 },
-        .typ = .{ .integer = .{ .signed = false, .bits = 64 } },
+        .typ = .{ .integer = .{ .signed = false, .bits = 32 } },
     });
 
     var foo = zgen.Foo{

@@ -11,6 +11,12 @@ pub const Type = union(enum) {
         signed: bool,
         bits: u32,
     };
+
+    pub fn bits(self: Type) u32 {
+        return switch (self) {
+            .integer => |i| i.bits,
+        };
+    }
 };
 
 pub const SymbolTable = struct {

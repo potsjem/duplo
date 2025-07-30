@@ -1,4 +1,5 @@
 const std = @import("std");
+const panic = std.debug.panic;
 
 const symbol = @import("symbol.zig");
 const SymbolTable = symbol.SymbolTable;
@@ -39,7 +40,7 @@ pub const Foo = struct {
 
     var buffer: [128]u8 = undefined;
 
-    fn label(self: *Foo) u32 {
+    pub fn label(self: *Foo) u32 {
         self.id += 1;
         return self.id;
     }
@@ -57,7 +58,7 @@ pub const Foo = struct {
         try self.writer.print("\t{s}\n", .{s});
     }
 
-    fn genlab(self: Foo, id: u32) !void {
+    pub fn genlabel(self: Foo, id: u32) !void {
         try self.writer.print("{c}{d}:", .{LPREFIX, id});
     }
 
@@ -134,6 +135,40 @@ pub const Foo = struct {
         try self.cgpublic(try gsym(name));
     }
 
+
+    //TODO, finish
+    //      look at ref impl
+    pub fn genload(self: *Foo, table: SymbolTable, ident: []const u8) !void {
+        try self.gentext();
+
+        const entry = table.get(ident).?;
+        try self.spill();
+
+        switch (entry.storage) {
+            .auto => switch (entry.typ.bits()) {
+                8 => {
+                    try self.cgclear();
+                    try self.cgldlb(entry.value.?.addr);
+                },
+                32 => {
+                    try self.cgldlw(entry.value.?.addr);
+                },
+                else => |s| panic("Unhandled bitsize: {}", .{s}),
+            },
+            else => switch (entry.typ.bits()) {
+                8 => {
+                    try self.cgclear();
+                    try self.cgldgb(try gsym(ident));
+                },
+                32 => {
+                    try self.cgldgw(try gsym(ident));
+                },
+                else => |s| panic("Unhandled bitsize: {}", .{s}),
+            },
+        }
+
+        self.acc = true;
+    }
 
     pub fn genaddr(self: *Foo, table: SymbolTable, ident: []const u8) !void {
         try self.gentext();
@@ -262,6 +297,11 @@ pub const Foo = struct {
         };
     }
 
+    pub fn genbool(self: *Foo) !void {
+        try self.gentext();
+        try self.cgbool();
+    }
+
     pub fn genjump(self: *Foo, id: u32) !void {
         try self.gentext();
         try self.cgjump(id);
@@ -305,8 +345,6 @@ pub const Foo = struct {
         try self.cgpush();
     }
 
-
-
     fn cgtext(self: *Foo) !void {
         try self.gen(".text");
     }
@@ -318,6 +356,28 @@ pub const Foo = struct {
     fn cglit(self: *Foo, v: u32) !void {
         try self.ngen1("{s}\t${d},%eax", "movl", v);
     }
+
+    fn cgclear(self: *Foo) !void {
+        try self.gen("xorl\t%eax,%eax");
+    }
+
+
+    fn cgldgb(self: *Foo, v: []const u8) !void {
+        try self.sgen("{s}\t{s},%al", "movb", v);
+    }
+
+    fn cgldgw(self: *Foo, v: []const u8) !void {
+        try self.sgen("{s}\t{s},%eax", "movl", v);
+    }
+
+    fn cgldlb(self: *Foo, v: u32) !void {
+        try self.ngen1("{s}\t{d}(%ebp),%al", "movb", v);
+    }
+
+    fn cgldlw(self: *Foo, v: u32) !void {
+        try self.ngen1("{s}\t{d}(%ebp),%eax", "movl", v);
+    }
+
 
     fn cgldla(self: *Foo, v: u32) !void {
         try self.ngen1("{s}\t{d}(%ebp),%eax", "leal", v);
@@ -388,7 +448,7 @@ pub const Foo = struct {
         try self.gen("cmpl\t%eax,%ecx");
         try self.lgen1("{s}\t{c}{d}", inst, lab);
         try self.gen("incl\t%edx");
-        try self.genlab(lab);
+        try self.genlabel(lab);
         try self.gen("movl\t%edx,%eax");
     }
 
@@ -414,6 +474,12 @@ pub const Foo = struct {
 
     fn cggte(self: *Foo) !void {
         try self.cgcmp("jl");
+    }
+
+    fn cgbool(self: *Foo) !void {
+        try self.gen("negl\t%eax");
+        try self.gen("sbbl\t%eax,%eax");
+        try self.gen("negl\t%eax");
     }
 
     fn cgbr(self: *Foo, instr: []const u8, id: u32) !void {

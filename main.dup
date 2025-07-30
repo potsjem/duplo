@@ -2,6 +2,9 @@ fn balls() i32
     return 42;
 
 fn main() i32 {
-    20 - 10 + 2;
+    20 - hello + 2;
+    10 and 0; // 0
+    10 and 2; // 1
+    0 or 10; // 1
     return 10 + balls();
 };
