@@ -105,6 +105,7 @@ pub const Ast = struct {
                 try self.emit(tokens, input, table, foo, node.extra.rhs);
                 try foo.genlabel(lab);
                 try foo.genbool();
+                foo.acc = true;
             },
             .logior => {
                 const lab = foo.label();
@@ -116,6 +117,24 @@ pub const Ast = struct {
                 try self.emit(tokens, input, table, foo, node.extra.rhs);
                 try foo.genlabel(lab);
                 try foo.genbool();
+                foo.acc = true;
+            },
+            .ternary => {
+                const lab0 = foo.label();
+                const lab1 = foo.label();
+
+                try self.emit(tokens, input, table, foo, node.extra.lhs);
+                try foo.genbrfalse(lab0);
+                foo.acc = false;
+
+                try self.emit(tokens, input, table, foo, node.extra.rhs+0);
+                try foo.genjump(lab1);
+                try foo.genlabel(lab0);
+                foo.acc = false;
+
+                try self.emit(tokens, input, table, foo, node.extra.rhs+1);
+                try foo.genlabel(lab1);
+                foo.acc = true;
             },
             .ret => {
                 try self.emit(tokens, input, table, foo, node.extra.lhs);
@@ -170,6 +189,11 @@ pub const Ast = struct {
                 self.debug(tokens, input, node.extra.lhs, depth+1);
                 self.debug(tokens, input, node.extra.rhs, depth+1);
             },
+            .ternary => {
+                self.debug(tokens, input, node.extra.lhs, depth+1);
+                self.debug(tokens, input, node.extra.rhs+0, depth+1);
+                self.debug(tokens, input, node.extra.rhs+1, depth+1);
+            },
             .fn_call, //TODO, custom impl for call
             .ret => {
                 self.debug(tokens, input, node.extra.lhs, depth+1);
@@ -196,6 +220,7 @@ const Node = struct {
         div,
         logand,
         logior,
+        ternary,
         ret,
     };
 
@@ -306,11 +331,10 @@ fn skip(input: []const Token, idx: *u32) void {
     }
 }
 
-fn expect(input: []const Token, idx: *u32, kind: Token.Kind) !Token {
-    const token = peek(input, idx);
-    if (token.kind != kind)
+fn expect(input: []const Token, idx: *u32, kind: Token.Kind) !void {
+    if (peek(input, idx).kind != kind)
         return error.UnexpectedToken;
-    return next(input, idx);
+    skip(input, idx);
 }
 
 pub fn parse(allocator: Allocator, input: []const Token) !Ast {
@@ -336,13 +360,13 @@ pub fn parse(allocator: Allocator, input: []const Token) !Ast {
             //},
             .@"fn" => {
                 const odx = idx;
-                _ = try expect(input, &idx, .@"fn");
-                _ = try expect(input, &idx, .identifier);
-                _ = try expect(input, &idx, .@"(");
-                _ = try expect(input, &idx, .@")");
+                try expect(input, &idx, .@"fn");
+                try expect(input, &idx, .identifier);
+                try expect(input, &idx, .@"(");
+                try expect(input, &idx, .@")");
                 const rtyp = try parseExpr(input, &idx, &nodes, &extra, 0);
                 const body = try parseExpr(input, &idx, &nodes, &extra, 0);
-                _ = try expect(input, &idx, .@";");
+                try expect(input, &idx, .@";");
 
                 const tdx = try pushNode(&nodes, rtyp);
                 const bdx = try pushNode(&nodes, body);
@@ -402,7 +426,7 @@ fn parseExpr(
                 },
                 else => {
                     const rhs = try parseExpr(input, idx, nodes, extra, 0);
-                    _ = try expect(input, idx, .@";");
+                    try expect(input, idx, .@";");
 
                     const rnd = try pushNode(nodes, rhs);
                     try elems.append(rnd);
@@ -435,6 +459,27 @@ fn parseExpr(
                 },
             };
         },
+        .@"if" => b: {
+            const odx = idx.* - 1;
+            const chs = try parseExpr(input, idx, nodes, extra, 0);
+            const lhs = try parseExpr(input, idx, nodes, extra, 0);
+            try expect(input, idx, .@"else");
+            const rhs = try parseExpr(input, idx, nodes, extra, 0);
+
+            const cnd = try pushNode(nodes, chs);
+            const lnd = try pushNode(nodes, lhs);
+            const rnd = try pushNode(nodes, rhs);
+            _ = rnd;
+
+            break :b .{
+                .main = odx,
+                .kind = .ternary,
+                .extra = .{
+                    .lhs = cnd,
+                    .rhs = lnd,
+                },
+            };
+        },
         else => |t| panic("Unexpected token: {}\n", .{t}),
     };
 
@@ -449,8 +494,8 @@ fn parseExpr(
             .@"or" => .logior,
             .@"(" => {
                 //TODO, add args
-                _ = try expect(input, idx, .@"(");
-                _ = try expect(input, idx, .@")");
+                try expect(input, idx, .@"(");
+                try expect(input, idx, .@")");
 
                 const lnd = try pushNode(nodes, lhs);
 
