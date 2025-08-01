@@ -6,15 +6,26 @@ const StringHashMap = std.StringHashMap;
 
 pub const Type = union(enum) {
     integer: Integer,
+    function: Function,
 
     const Integer = struct {
         signed: bool,
         bits: u32,
     };
 
+    const Function = struct {
+        convention: Convention,
+
+        const Convention = enum {
+            auto,
+            cdecl,
+        };
+    };
+
     pub fn bits(self: Type) u32 {
         return switch (self) {
             .integer => |i| i.bits,
+            .function => 32,
         };
     }
 };

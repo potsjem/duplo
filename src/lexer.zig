@@ -30,6 +30,7 @@ pub const Token = struct {
         @"{",
         @"}",
         @";",
+        @",",
         @"fn",
         @"return",
         @"and",
@@ -70,6 +71,7 @@ pub const Token = struct {
             .@"{" => "{",
             .@"}" => "}",
             .@";" => ";",
+            .@"," => ",",
             .@"fn" => "fn",
             .@"return" => "return",
             .@"and" => "and",
@@ -178,6 +180,15 @@ pub fn lex(allocator: Allocator, input: [:0]const u8) ![]Token {
             ';' => {
                 try tokens.append(.{
                     .kind = .@";",
+                    .idx = idx,
+                });
+
+                idx += 1;
+                continue :state .initial;
+            },
+            ',' => {
+                try tokens.append(.{
+                    .kind = .@",",
                     .idx = idx,
                 });
 

@@ -340,9 +340,14 @@ pub const Foo = struct {
         try self.cgexit();
     }
 
-    fn genpush(self: *Foo) !void {
+    pub fn genpush(self: *Foo) !void {
         try self.gentext();
         try self.cgpush();
+    }
+
+    pub fn genpop2(self: *Foo) !void {
+        try self.gentext();
+        try self.cgpop2();
     }
 
     fn cgtext(self: *Foo) !void {

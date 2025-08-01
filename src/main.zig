@@ -31,6 +31,20 @@ pub fn main() !void {
     ast.debug(tokens, source, 0, 0);
 
     var table = SymbolTable.init(allocator);
+    try table.put("balls", .{
+        .storage = .public,
+        .value = null,
+        .typ = .{ .function = .{
+            .convention = .auto,
+        }},
+    });
+    try table.put("mod", .{
+        .storage = .public,
+        .value = null,
+        .typ = .{ .function = .{
+            .convention = .cdecl,
+        }},
+    });
     try table.put("hello", .{
         .storage = .auto,
         .value = .{ .addr = 1000 },

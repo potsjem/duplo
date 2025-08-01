@@ -1,5 +1,6 @@
 const std = @import("std");
 const panic = std.debug.panic;
+const reverse = std.mem.reverse;
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
@@ -53,7 +54,33 @@ pub const Ast = struct {
             .fn_call => {
                 const body = self.nodes[node.extra.lhs];
                 const name = tokens[body.main].slice(input);
-                try foo.gencall(name);
+                const args = self.extraSlice(node.extra.rhs);
+
+                const entry = table.get(name).?;
+                const proto = entry.typ.function;
+
+
+                switch (proto.convention) {
+                    .auto,
+                    .cdecl => {
+                        const acc = foo.acc;
+                        reverse(u32, args);
+
+                        for (args) |arg| {
+                            try self.emit(tokens, input, table, foo, arg);
+                            try foo.genpush();
+                            foo.acc = false;
+                        }
+
+                        try foo.gencall(name);
+                        for (args) |_|
+                            try foo.genpop2();
+
+                        reverse(u32, args);
+                        foo.acc = acc;
+                    },
+                }
+
             },
             .integer => {
                 //TODO, check type, and parse correct int-variant
@@ -382,7 +409,7 @@ pub fn parse(allocator: Allocator, input: []const Token) !Ast {
                 });
                 try roots.append(ndx);
             },
-            else => |k| panic("unexpected token.{s}", .{@tagName(k)}),
+            else => return error.UnexpectedToken,
         }
     }
 
@@ -480,7 +507,7 @@ fn parseExpr(
                 },
             };
         },
-        else => |t| panic("Unexpected token: {}\n", .{t}),
+        else => return error.UnexpectedToken,
     };
 
     while (true) {
@@ -495,16 +522,40 @@ fn parseExpr(
             .@"(" => {
                 //TODO, add args
                 try expect(input, idx, .@"(");
-                try expect(input, idx, .@")");
+
+                var args = ArrayList(u32).init(extra.allocator);
+
+                while (true) switch (peek(input, idx).kind) {
+                    .@"," => {
+                        skip(input, idx);
+                        try args.append(0);
+                    },
+                    .@")" => {
+                        skip(input, idx);
+                        break;
+                    },
+                    else => {
+                        const arg = try parseExpr(input, idx, nodes, extra, 0);
+                        const gnd = try pushNode(nodes, arg);
+                        try args.append(gnd);
+
+                        switch (next(input, idx).kind) {
+                            .@"," => {},
+                            .@")" => break,
+                            else => return error.UnexpectedToken,
+                        }
+                    },
+                };
 
                 const lnd = try pushNode(nodes, lhs);
+                const gnd = try pushExtraList(extra, &args);
 
                 lhs = .{
                     .main = odx,
                     .kind = .fn_call,
                     .extra = .{
                         .lhs = lnd,
-                        .rhs = undefined,
+                        .rhs = gnd,
                     },
                 };
 

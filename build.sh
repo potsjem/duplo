@@ -4,7 +4,7 @@ set -xe
 
 mkdir -p out
 
-zig build-exe src/main.zig $@
+zig build-exe src/main.zig $@ -femit-bin=out/duplo
 
-./main > out/lib.S
-gcc -m32 main.c out/lib.S
+out/duplo > out/lib.S
+gcc -m32 lib/main.c out/lib.S -o out/main
