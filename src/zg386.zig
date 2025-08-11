@@ -2,9 +2,9 @@ const std = @import("std");
 const panic = std.debug.panic;
 
 const symbol = @import("symbol.zig");
-const SymbolTable = symbol.SymbolTable;
+const SymbolTables = symbol.SymbolTables;
 
-const GPREFIX = 'C';
+const GPREFIX = ' ';
 const LPREFIX = 'L';
 
 const Segment = enum {
@@ -62,7 +62,8 @@ pub const Foo = struct {
         try self.writer.print("{c}{d}:", .{LPREFIX, id});
     }
 
-    fn ngen1(self: Foo, comptime fmt: []const u8, inst: []const u8, n: u32) !void {
+    //TODO, figure out how to fix n-prm
+    pub fn ngen1(self: Foo, comptime fmt: []const u8, inst: []const u8, n: anytype) !void {
         try self.writer.print("\t", .{});
         try self.writer.print(fmt, .{inst, n});
         try self.writer.print("\n", .{});
@@ -135,13 +136,35 @@ pub const Foo = struct {
         try self.cgpublic(try gsym(name));
     }
 
+    //NOTE, diff impl than ref
+    pub fn genstore(self: *Foo, tables: SymbolTables, tdx: u32, ident: []const u8) !void {
+        try self.gentext();
+
+        const entry = tables.get(tdx, ident) orelse {
+            panic("unfound ident: {s}", .{ident});
+        };
+
+        switch (entry.storage) {
+            .auto => switch (entry.typ.bits()) {
+                32 => {
+                    try self.cgstorlw(entry.value.?.addr);
+                },
+                else => |s| panic("Unhandled bitsize: {}", .{s}),
+            },
+            else => switch (entry.typ.bits()) {
+                else => |s| panic("Unhandled bitsize: {}", .{s}),
+            },
+        }
+    }
 
     //TODO, finish
     //      look at ref impl
-    pub fn genload(self: *Foo, table: SymbolTable, ident: []const u8) !void {
+    pub fn genload(self: *Foo, tables: SymbolTables, tdx: u32, ident: []const u8) !void {
         try self.gentext();
 
-        const entry = table.get(ident).?;
+        const entry = tables.get(tdx, ident) orelse {
+            panic("unfound ident: {s}", .{ident});
+        };
         try self.spill();
 
         switch (entry.storage) {
@@ -170,11 +193,11 @@ pub const Foo = struct {
         self.acc = true;
     }
 
-    pub fn genaddr(self: *Foo, table: SymbolTable, ident: []const u8) !void {
+    pub fn genaddr(self: *Foo, tables: SymbolTables, tdx: u32, ident: []const u8) !void {
         try self.gentext();
         try self.spill();
 
-        const entry = table.get(ident).?;
+        const entry = tables.get(tdx, ident).?;
         switch (entry.storage) {
             .public => {
                 try self.cgldga(try gsym(ident));
@@ -330,14 +353,14 @@ pub const Foo = struct {
         self.acc = true;
     }
 
-    pub fn genentry(self: *Foo) !void {
+    pub fn genentry(self: *Foo, size: u32) !void {
         try self.gentext();
-        try self.cgentry();
+        try self.cgentry(size);
     }
 
-    pub fn genexit(self: *Foo) !void {
+    pub fn genexit(self: *Foo, size: u32) !void {
         try self.gentext();
-        try self.cgexit();
+        try self.cgexit(size);
     }
 
     pub fn genpush(self: *Foo) !void {
@@ -375,21 +398,24 @@ pub const Foo = struct {
         try self.sgen("{s}\t{s},%eax", "movl", v);
     }
 
-    fn cgldlb(self: *Foo, v: u32) !void {
+    fn cgldlb(self: *Foo, v: i32) !void {
         try self.ngen1("{s}\t{d}(%ebp),%al", "movb", v);
     }
 
-    fn cgldlw(self: *Foo, v: u32) !void {
+    fn cgldlw(self: *Foo, v: i32) !void {
         try self.ngen1("{s}\t{d}(%ebp),%eax", "movl", v);
     }
 
-
-    fn cgldla(self: *Foo, v: u32) !void {
+    fn cgldla(self: *Foo, v: i32) !void {
         try self.ngen1("{s}\t{d}(%ebp),%eax", "leal", v);
     }
 
     fn cgldga(self: *Foo, v: []const u8) !void {
         try self.sgen("{s}\t${s},%eax", "movl", v);
+    }
+
+    fn cgstorlw(self: *Foo, v: i32) !void {
+        try self.ngen1("{s}\t%eax,{d}(%ebp)", "movl", v);
     }
 
     fn cgpush(self: *Foo) !void {
@@ -508,12 +534,14 @@ pub const Foo = struct {
         try self.sgen("{s}\t{s}", "call", name);
     }
 
-    fn cgentry(self: *Foo) !void {
+    fn cgentry(self: *Foo, size: u32) !void {
         try self.gen("pushl\t%ebp");
         try self.gen("movl\t%esp,%ebp");
+        try self.ngen1("{s}\t${d},%esp", "subl", size);
     }
 
-    fn cgexit(self: *Foo) !void {
+    fn cgexit(self: *Foo, size: u32) !void {
+        try self.ngen1("{s}\t${d},%esp", "addl", size);
         try self.gen("popl\t%ebp");
         try self.gen("ret");
     }

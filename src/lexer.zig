@@ -25,10 +25,12 @@ pub const Token = struct {
         @"-",
         @"*",
         @"/",
+        @"=",
         @"(",
         @")",
         @"{",
         @"}",
+        @":",
         @";",
         @",",
         @"fn",
@@ -37,6 +39,8 @@ pub const Token = struct {
         @"or",
         @"if",
         @"else",
+        @"let",
+        @"mut",
     };
 
     pub fn slice(self: Token, input: [:0]const u8) []const u8 {
@@ -62,22 +66,7 @@ pub const Token = struct {
                     return input[self.idx..idx];
                 },
             },
-            .@"+" => "+",
-            .@"-" => "-",
-            .@"*" => "*",
-            .@"/" => "/",
-            .@"(" => "(",
-            .@")" => ")",
-            .@"{" => "{",
-            .@"}" => "}",
-            .@";" => ";",
-            .@"," => ",",
-            .@"fn" => "fn",
-            .@"return" => "return",
-            .@"and" => "and",
-            .@"or" => "or",
-            .@"if" => "if",
-            .@"else" => "else",
+            else => |k| @tagName(k),
         };
     }
 };
@@ -141,6 +130,15 @@ pub fn lex(allocator: Allocator, input: [:0]const u8) ![]Token {
                     continue :state .initial;
                 },
             },
+            '=' => {
+                try tokens.append(.{
+                    .kind = .@"=",
+                    .idx = idx,
+                });
+
+                idx += 1;
+                continue :state .initial;
+            },
             '(' => {
                 try tokens.append(.{
                     .kind = .@"(",
@@ -171,6 +169,15 @@ pub fn lex(allocator: Allocator, input: [:0]const u8) ![]Token {
             '}' => {
                 try tokens.append(.{
                     .kind = .@"}",
+                    .idx = idx,
+                });
+
+                idx += 1;
+                continue :state .initial;
+            },
+            ':' => {
+                try tokens.append(.{
+                    .kind = .@":",
                     .idx = idx,
                 });
 

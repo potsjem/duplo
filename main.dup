@@ -1,10 +1,18 @@
+fn add(x: i32, y: i32) i32
+    return x + y;
+
+fn addb(x: i8, y: i8) i8
+    return x + y;
+
 fn balls() i32
     return 42;
 
-fn main() i32 {
+fn Dmain() i32 {
+    let a: i32 = 10;
     20 - hello + 2;
     10 and 0; // 0
     10 and 2; // 1
     0 or 10; // 1
-    return 10 + if 0 1 else mod(balls(), 10);
+    //return 10 + if 0 1 else mod(balls(), 10);
+    return 8 + a;
 };

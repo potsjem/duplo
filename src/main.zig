@@ -9,7 +9,7 @@ const Parser = @import("parser.zig");
 const zgen = @import("zg386.zig");
 
 const symbol = @import("symbol.zig");
-const SymbolTable = symbol.SymbolTable;
+const SymbolTables = symbol.SymbolTables;
 
 pub fn main() !void {
     var gpa: DebugAllocator = .init;
@@ -25,27 +25,21 @@ pub fn main() !void {
     for (tokens) |token|
         std.debug.print("token.{s}: '{s}'\n", .{@tagName(token.kind), token.slice(source)});
 
-    const ast = try Parser.parse(allocator, tokens);
+    var tables = SymbolTables.init(allocator);
+    const ast = try Parser.parse(allocator, tokens, source, &tables);
     defer ast.deinit(allocator);
 
     ast.debug(tokens, source, 0, 0);
 
-    var table = SymbolTable.init(allocator);
-    try table.put("balls", .{
+    _ = try tables.scan(ast, tokens, source, undefined, 0);
+    try tables.put(0, "mod", .{
         .storage = .public,
         .value = null,
         .typ = .{ .function = .{
             .convention = .auto,
         }},
     });
-    try table.put("mod", .{
-        .storage = .public,
-        .value = null,
-        .typ = .{ .function = .{
-            .convention = .cdecl,
-        }},
-    });
-    try table.put("hello", .{
+    try tables.put(0, "hello", .{
         .storage = .auto,
         .value = .{ .addr = 1000 },
         .typ = .{ .integer = .{ .signed = false, .bits = 32 } },
@@ -59,7 +53,7 @@ pub fn main() !void {
     //try foo.genname("main");
 
     //try foo.genentry();
-    try ast.emit(tokens, source, table, &foo, 0);
+    try ast.emit(tokens, source, tables, &foo, 0, undefined, undefined);
 
     try foo.genraw(".section .note.GNU-stack,\"\"");
 
