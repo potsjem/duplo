@@ -15,6 +15,7 @@ pub const Type = union(enum) {
     Type,
     Noreturn,
     integer: Integer,
+    pointer: Pointer,
     function: Function,
 
     const Integer = struct {
@@ -22,6 +23,11 @@ pub const Type = union(enum) {
         bits: u32,
     };
 
+    const Pointer = struct {
+        child: u32,
+    };
+
+    //TODO, add more?
     const Function = struct {
         convention: Convention,
 
@@ -36,6 +42,7 @@ pub const Type = union(enum) {
             .Type,
             .Noreturn => @panic("TODO"),
             .integer => |i| i.bits,
+            .pointer,
             .function => 32,
         };
     }
@@ -166,7 +173,7 @@ pub const SymbolTables = struct {
         return @intCast(tdx);
     }
 
-    fn getTable(self: *SymbolTables, tdx: u32) ?*SymbolTable {
+    pub fn getTable(self: SymbolTables, tdx: u32) ?*SymbolTable {
         if (tdx >= self.tables.items.len)
             return null;
         return &self.tables.items[tdx];

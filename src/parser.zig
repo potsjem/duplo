@@ -9,8 +9,9 @@ const Lexer = @import("lexer.zig");
 const Token = Lexer.Token;
 
 const symbol = @import("symbol.zig");
-const SymbolTable = symbol.SymbolTable;
 const SymbolTables = symbol.SymbolTables;
+const SymbolTable = symbol.SymbolTable;
+const Entry = SymbolTable.Entry;
 
 const zgen = @import("zg386.zig");
 const Foo = zgen.Foo;
@@ -29,6 +30,30 @@ pub const Ast = struct {
         return self.extra[idx+1..idx+len+1];
     }
 
+    pub fn lvalue(
+        self: Ast,
+        tokens: []const Token,
+        input: [:0]const u8,
+        tables: SymbolTables,
+        tdx: u32,
+        idx: u32,
+    ) !Entry {
+        const node = self.nodes[idx];
+
+        switch (node.kind) {
+            .identifier => {
+                const ident = tokens[node.main].slice(input);
+                const entry = tables.get(tdx, ident) orelse {
+                    panic("Unknown identifier: {s}", .{ident});
+                };
+
+                return entry;
+            },
+            else => @panic("TODO"),
+        }
+    }
+
+    //TODO, switch idx/tdx order
     pub fn emit(
         self: Ast,
         tokens: []const Token,
@@ -59,10 +84,9 @@ pub const Ast = struct {
 
                 var size: u32 = 0;
                 for (locals) |local| {
-                    try foo.ngen1("\t//local: {s} => {d}", local.name, local.entry.typ.bits());
+                    try foo.ngen1("//local: {s} => {d}", local.name, local.entry.typ.bits());
                     size += @divExact(local.entry.typ.bits(), 8);
                 }
-
 
                 try foo.genpublic(name);
                 try foo.genname(name);
@@ -147,11 +171,10 @@ pub const Ast = struct {
                 try foo.genbinop(.div);
             },
             .assign => {
+                const entry = try self.lvalue(tokens, input, tables, tdx, node.extra.lhs);
                 try self.emit(tokens, input, tables, foo, node.extra.rhs, tdx, stack_size);
 
-                //TODO, change name location
-                const name = tokens[node.main+1].slice(input);
-                try foo.genstore(tables, tdx, name);
+                try foo.genstore(entry);
             },
             .logand => {
                 const lab = foo.label();
@@ -296,7 +319,14 @@ pub const Ast = struct {
                 const slice = self.extraSlice(node.extra.lhs);
 
                 //TODO, add to list
-                const instance = tables.getTable();
+                const instance = tables.getTable(table).?;
+                var entries = instance.table.iterator();
+                while (entries.next()) |entry| {
+                    try list.append(.{
+                        .name = entry.key_ptr.*,
+                        .entry = entry.value_ptr.*,
+                    });
+                }
 
                 for (slice) |ndx| {
                     try self.listLocalsDo(list, tables, table, ndx);
@@ -360,6 +390,7 @@ const Op = enum {
     sub,
     mul,
     div,
+    assign,
     logand,
     logior,
     ret,
@@ -375,6 +406,7 @@ const Op = enum {
             .sub => .sub,
             .mul => .mul,
             .div => .div,
+            .assign => .assign,
             .logand => .logand,
             .logior => .logior,
             .ret => .ret,
@@ -391,9 +423,10 @@ const Op = enum {
     //TODO, reorganize and standardize
     fn infixPower(self: Op) ?Power {
         return switch (self) {
-            .logand, .logior => .{ .lbp = 1, .rbp = 2 },
-            .add, .sub => .{ .lbp = 3, .rbp = 4 },
-            .mul, .div => .{ .lbp = 5, .rbp = 6 },
+            .assign => .{ .lbp = 2, .rbp = 3 },
+            .logand, .logior => .{ .lbp = 4, .rbp = 5 },
+            .add, .sub => .{ .lbp = 6, .rbp = 7 },
+            .mul, .div => .{ .lbp = 8, .rbp = 9 },
             else => null,
         };
     }
@@ -582,20 +615,26 @@ fn parseExpr(
                     const ldx = idx.*;
                     skip(tokens, idx);
 
+                    const power = Op.assign.infixPower().?;
+
                     try expect(tokens, idx, .identifier);
                     try expect(tokens, idx, .@":");
-                    const typ = try parseExpr(tokens, input, idx, nodes, extra, tables, table, 0);
+                    const typ = try parseExpr(tokens, input, idx, nodes, extra, tables, table, power.rbp);
                     try expect(tokens, idx, .@"=");
                     const expr = try parseExpr(tokens, input, idx, nodes, extra, tables, table, 0);
                     try expect(tokens, idx, .@";");
 
-                    const tnd = try pushNode(nodes, typ);
+                    const ind = try pushNode(nodes, .{
+                        .main = ldx + 1,
+                        .kind = .identifier,
+                        .extra = undefined,
+                    });
                     const end = try pushNode(nodes, expr);
                     const mnd = try pushNode(nodes, .{
                         .main = ldx,
                         .kind = .assign,
                         .extra = .{
-                            .lhs = tnd,
+                            .lhs = ind,
                             .rhs = end,
                         },
                     });
@@ -675,6 +714,7 @@ fn parseExpr(
             .@"-" => .sub,
             .@"*" => .mul,
             .@"/" => .div,
+            .@"=" => .assign,
             .@"and" => .logand,
             .@"or" => .logior,
             .@"(" => {

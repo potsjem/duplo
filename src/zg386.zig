@@ -3,6 +3,7 @@ const panic = std.debug.panic;
 
 const symbol = @import("symbol.zig");
 const SymbolTables = symbol.SymbolTables;
+const Entry = symbol.SymbolTable.Entry;
 
 const GPREFIX = ' ';
 const LPREFIX = 'L';
@@ -137,12 +138,8 @@ pub const Foo = struct {
     }
 
     //NOTE, diff impl than ref
-    pub fn genstore(self: *Foo, tables: SymbolTables, tdx: u32, ident: []const u8) !void {
+    pub fn genstore(self: *Foo, entry: Entry) !void {
         try self.gentext();
-
-        const entry = tables.get(tdx, ident) orelse {
-            panic("unfound ident: {s}", .{ident});
-        };
 
         switch (entry.storage) {
             .auto => switch (entry.typ.bits()) {
