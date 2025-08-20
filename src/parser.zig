@@ -25,8 +25,9 @@ pub const Ast = struct {
     nodes: []Node,
     extra: []u32,
 
-    const Local = struct {
-        name: []const u8,
+    //TODO, change name
+    pub const Local = struct {
+        name: ?[]const u8,
         entry: SymbolTable.Entry,
     };
 
@@ -39,10 +40,11 @@ pub const Ast = struct {
         self: Ast,
         tokens: []const Token,
         input: [:0]const u8,
+        foo: *Foo,
         tables: SymbolTables,
         tdx: u32,
         idx: u32,
-    ) !Entry {
+    ) !Local {
         const node = self.nodes[idx];
 
         switch (node.kind) {
@@ -52,7 +54,27 @@ pub const Ast = struct {
                     panic("Unknown identifier: {s}", .{ident});
                 };
 
-                return entry;
+                return .{
+                    .name = ident,
+                    .entry = entry,
+                };
+            },
+            .deref => {
+                const entry = try self.lvalue(tokens, input, foo, tables, tdx, node.extra.lhs);
+
+                //TODO, check if correct behaviour
+                //      mostly in multi-level derefs
+                try foo.genload(entry);
+                //try foo.genpush();
+
+                return .{
+                    .name = null,
+                    .entry = .{
+                        .storage = undefined,
+                        .value = undefined,
+                        .typ = .I32, //TODO TODO TODO TODO TODO, PLEASE FIX TvT, all derefs are i32 now
+                    },
+                };
             },
             else => @panic("TODO"),
         }
@@ -89,7 +111,7 @@ pub const Ast = struct {
 
                 var size: u32 = 0;
                 for (locals) |local| {
-                    try foo.ngen1("//local: {s} => {d}", local.name, local.entry.typ.bits());
+                    try foo.ngen1("//local: {s} => {d}", local.name.?, local.entry.typ.bits());
                     size += @divExact(local.entry.typ.bits(), 8);
                 }
 
@@ -144,7 +166,8 @@ pub const Ast = struct {
             },
             .identifier => {
                 const name = tokens[node.main].slice(input);
-                try foo.genload(tables, tdx, name);
+                const entry = tables.get(tdx, name).?;
+                try foo.genload(.{ .name = name, .entry = entry });
             },
             .block => {
                 const table = node.extra.rhs;
@@ -175,8 +198,12 @@ pub const Ast = struct {
                 try self.emit(tokens, input, tables, foo, node.extra.rhs, tdx, stack_size);
                 try foo.genbinop(.div);
             },
+            .deref => {
+                const entry = try self.lvalue(tokens, input, foo, tables, tdx, node.extra.lhs);
+                try foo.genload(entry);
+            },
             .assign => {
-                const entry = try self.lvalue(tokens, input, tables, tdx, node.extra.lhs);
+                const entry = try self.lvalue(tokens, input, foo, tables, tdx, node.extra.lhs);
                 try self.emit(tokens, input, tables, foo, node.extra.rhs, tdx, stack_size);
 
                 try foo.genstore(entry);
@@ -266,6 +293,9 @@ pub const Ast = struct {
             },
             .integer,
             .identifier => {},
+            .deref => {
+                self.debug(tokens, input, node.extra.lhs, depth+1);
+            },
             .add,
             .sub,
             .mul,
@@ -348,6 +378,9 @@ pub const Ast = struct {
                 try self.listLocalsDo(list, tables, tdx, node.extra.lhs);
                 try self.listLocalsDo(list, tables, tdx, node.extra.rhs);
             },
+            .deref => {
+                try self.listLocalsDo(list, tables, tdx, node.extra.lhs);
+            },
             .assign => {
                 try self.listLocalsDo(list, tables, tdx, node.extra.rhs);
             },
@@ -380,6 +413,7 @@ const Node = struct {
         sub,
         mul,
         div,
+        deref,
         assign,
         logand,
         logior,
@@ -398,6 +432,7 @@ const Op = enum {
     sub,
     mul,
     div,
+    deref,
     assign,
     logand,
     logior,
@@ -414,6 +449,7 @@ const Op = enum {
             .sub => .sub,
             .mul => .mul,
             .div => .div,
+            .deref => .deref,
             .assign => .assign,
             .logand => .logand,
             .logior => .logior,
@@ -423,6 +459,7 @@ const Op = enum {
 
     fn prefixPower(self: Op) ?u8 {
         return switch (self) {
+            .deref => 10,
             .ret => 1,
             else => null,
         };
@@ -608,6 +645,21 @@ fn parseExpr(
             .kind = .identifier,
             .extra = undefined
         },
+        .@"*" => b: {
+            const odx = idx.* - 1;
+            const rbp = Op.prefixPower(.deref).?;
+            const rhs = try parseExpr(tokens, input, idx, nodes, extra, tables, tdx, rbp);
+            const rnd = try pushNode(nodes, rhs);
+
+            break :b .{
+                .main = odx,
+                .kind = .deref,
+                .extra = .{
+                    .lhs = rnd,
+                    .rhs = undefined,
+                },
+            };
+        },
         .@"{" => b: {
             const table = try tables.newTable(tdx);
 
@@ -681,6 +733,7 @@ fn parseExpr(
             const rbp = Op.prefixPower(.ret).?;
             const rhs = parseExpr(tokens, input, idx, nodes, extra, tables, tdx, rbp);
             const rnd = if (rhs) |r| try pushNode(nodes, r) else |err| switch (err) {
+                //TODO TODO TODO TODO TODO, fucking wrong btw >:(
                 error.UnexpectedFirstToken => 0,
                 else => return err,
             };

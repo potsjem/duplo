@@ -1,9 +1,11 @@
 const std = @import("std");
 const panic = std.debug.panic;
 
+const Parser = @import("parser.zig");
+const Ast = Parser.Ast;
+
 const symbol = @import("symbol.zig");
 const SymbolTables = symbol.SymbolTables;
-const Entry = symbol.SymbolTable.Entry;
 
 const GPREFIX = ' ';
 const LPREFIX = 'L';
@@ -138,17 +140,28 @@ pub const Foo = struct {
     }
 
     //NOTE, diff impl than ref
-    pub fn genstore(self: *Foo, entry: Entry) !void {
+    pub fn genstore(self: *Foo, lv: Ast.Local) !void {
         try self.gentext();
 
-        switch (entry.storage) {
-            .auto => switch (entry.typ.bits()) {
+        const name = lv.name orelse switch (lv.entry.typ.bits()) {
+            32 => {
+                try self.cgpopptr();
+                try self.cgstoriw();
+                return;
+            },
+            else => |s| panic("Unhandled bitsize: {}", .{s}),
+        };
+
+        _ = name;
+
+        switch (lv.entry.storage) {
+            .auto => switch (lv.entry.typ.bits()) {
                 32 => {
-                    try self.cgstorlw(entry.value.?.addr);
+                    try self.cgstorlw(lv.entry.value.?.addr);
                 },
                 else => |s| panic("Unhandled bitsize: {}", .{s}),
             },
-            else => switch (entry.typ.bits()) {
+            else => switch (lv.entry.typ.bits()) {
                 else => |s| panic("Unhandled bitsize: {}", .{s}),
             },
         }
@@ -156,32 +169,29 @@ pub const Foo = struct {
 
     //TODO, finish
     //      look at ref impl
-    pub fn genload(self: *Foo, tables: SymbolTables, tdx: u32, ident: []const u8) !void {
+    pub fn genload(self: *Foo, lv: Ast.Local) !void {
         try self.gentext();
 
-        const entry = tables.get(tdx, ident) orelse {
-            panic("unfound ident: {s}", .{ident});
-        };
         try self.spill();
 
-        switch (entry.storage) {
-            .auto => switch (entry.typ.bits()) {
+        switch (lv.entry.storage) {
+            .public => switch (lv.entry.typ.bits()) {
                 8 => {
                     try self.cgclear();
-                    try self.cgldlb(entry.value.?.addr);
+                    try self.cgldgb(try gsym(lv.name.?));
                 },
                 32 => {
-                    try self.cgldlw(entry.value.?.addr);
+                    try self.cgldgw(try gsym(lv.name.?));
                 },
                 else => |s| panic("Unhandled bitsize: {}", .{s}),
             },
-            else => switch (entry.typ.bits()) {
+            .auto => switch (lv.entry.typ.bits()) {
                 8 => {
                     try self.cgclear();
-                    try self.cgldgb(try gsym(ident));
+                    try self.cgldlb(lv.entry.value.?.addr);
                 },
                 32 => {
-                    try self.cgldgw(try gsym(ident));
+                    try self.cgldlw(lv.entry.value.?.addr);
                 },
                 else => |s| panic("Unhandled bitsize: {}", .{s}),
             },
@@ -409,6 +419,14 @@ pub const Foo = struct {
 
     fn cgldga(self: *Foo, v: []const u8) !void {
         try self.sgen("{s}\t${s},%eax", "movl", v);
+    }
+
+    fn cgpopptr(self: *Foo) !void {
+        try self.gen("popl\t%edx");
+    }
+
+    fn cgstoriw(self: *Foo) !void {
+        try self.ngen1("{s}\t%eax,(%edx) // {d}", "movl", 0);
     }
 
     fn cgstorlw(self: *Foo, v: i32) !void {

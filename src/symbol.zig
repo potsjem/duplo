@@ -38,6 +38,10 @@ pub const Type = union(enum) {
         };
     };
 
+    //NOTE, Constants
+    pub const I8  = Type{ .integer = .{ .signed = true, .bits = 8  } };
+    pub const I32 = Type{ .integer = .{ .signed = true, .bits = 32 } };
+
     pub fn bits(self: Type) u32 {
         return switch (self) {
             .Type,
