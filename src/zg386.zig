@@ -534,11 +534,13 @@ pub const Foo = struct {
     fn cgentry(self: *Foo, size: u32) !void {
         try self.gen("pushl\t%ebp");
         try self.gen("movl\t%esp,%ebp");
-        try self.ngen1("{s}\t${d},%esp", "subl", size);
+        if (size != 0)
+            try self.ngen1("{s}\t${d},%esp", "subl", size);
     }
 
     fn cgexit(self: *Foo, size: u32) !void {
-        try self.ngen1("{s}\t${d},%esp", "addl", size);
+        if (size != 0)
+            try self.ngen1("{s}\t${d},%esp", "addl", size);
         try self.gen("popl\t%ebp");
         try self.gen("ret");
     }

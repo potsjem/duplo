@@ -12,6 +12,7 @@ const Parser = @import("parser.zig");
 const Ast = Parser.Ast;
 
 pub const Type = union(enum) {
+    Void,
     Type,
     Noreturn,
     integer: Integer,
@@ -41,6 +42,7 @@ pub const Type = union(enum) {
         return switch (self) {
             .Type,
             .Noreturn => @panic("TODO"),
+            .Void => 0,
             .integer => |i| i.bits,
             .pointer,
             .function => 32,
@@ -149,7 +151,10 @@ pub const SymbolTables = struct {
                 return null;
             },
             .ret => {
-                const typ = try self.scan(tree, tokens, input, tdx, node.extra.lhs);
+                const typ = switch (node.extra.lhs) {
+                    0 => null, //TODO, Type.Void,
+                    else => try self.scan(tree, tokens, input, tdx, node.extra.lhs),
+                };
                 _ = typ;
 
                 //TODO, check if typ mathces function return

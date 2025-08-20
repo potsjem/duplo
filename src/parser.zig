@@ -16,6 +16,11 @@ const Entry = SymbolTable.Entry;
 const zgen = @import("zg386.zig");
 const Foo = zgen.Foo;
 
+const Error = error {
+    UnexpectedToken,
+    UnexpectedFirstToken,
+} || Allocator.Error;
+
 pub const Ast = struct {
     nodes: []Node,
     extra: []u32,
@@ -218,7 +223,8 @@ pub const Ast = struct {
                 foo.acc = true;
             },
             .ret => {
-                try self.emit(tokens, input, tables, foo, node.extra.lhs, tdx, stack_size);
+                if (node.extra.lhs != 0)
+                    try self.emit(tokens, input, tables, foo, node.extra.lhs, tdx, stack_size);
                 try foo.genexit(stack_size);
             },
         }
@@ -281,7 +287,8 @@ pub const Ast = struct {
             },
             .fn_call, //TODO, custom impl for call
             .ret => {
-                self.debug(tokens, input, node.extra.lhs, depth+1);
+                if (node.extra.lhs != 0)
+                    self.debug(tokens, input, node.extra.lhs, depth+1);
             },
         }
     }
@@ -350,7 +357,8 @@ pub const Ast = struct {
                 try self.listLocalsDo(list, tables, tdx, node.extra.rhs+1);
             },
             .ret => {
-                try self.listLocalsDo(list, tables, tdx, node.extra.lhs);
+                if (node.extra.lhs != 0)
+                    try self.listLocalsDo(list, tables, tdx, node.extra.lhs);
             },
         }
     }
@@ -588,7 +596,7 @@ fn parseExpr(
     tables: *SymbolTables,
     tdx: u32,
     bp: u8,
-) !Node {
+) Error!Node {
     var lhs: Node = switch (next(tokens, idx).kind) {
         .integer => .{
             .main = idx.* - 1,
@@ -671,8 +679,11 @@ fn parseExpr(
         .@"return" => b: {
             const odx = idx.* - 1;
             const rbp = Op.prefixPower(.ret).?;
-            const rhs = try parseExpr(tokens, input, idx, nodes, extra, tables, tdx, rbp);
-            const rnd = try pushNode(nodes, rhs);
+            const rhs = parseExpr(tokens, input, idx, nodes, extra, tables, tdx, rbp);
+            const rnd = if (rhs) |r| try pushNode(nodes, r) else |err| switch (err) {
+                error.UnexpectedFirstToken => 0,
+                else => return err,
+            };
 
             break :b .{
                 .main = odx,
@@ -704,7 +715,10 @@ fn parseExpr(
                 },
             };
         },
-        else => return error.UnexpectedToken,
+        else => {
+            idx.* -= 1;
+            return error.UnexpectedFirstToken;
+        },
     };
 
     while (true) {
