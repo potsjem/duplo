@@ -60,11 +60,12 @@ pub const Ast = struct {
                 };
             },
             .deref => {
-                const entry = try self.lvalue(tokens, input, foo, tables, tdx, node.extra.lhs);
+                const lv = try self.lvalue(tokens, input, foo, tables, tdx, node.extra.lhs);
+                const typ = tables.types.items[lv.entry.typ.pointer.child];
 
                 //TODO, check if correct behaviour
                 //      mostly in multi-level derefs
-                try foo.genload(entry);
+                try foo.genload(lv);
                 //try foo.genpush();
 
                 return .{
@@ -72,7 +73,7 @@ pub const Ast = struct {
                     .entry = .{
                         .storage = undefined,
                         .value = undefined,
-                        .typ = .I32, //TODO TODO TODO TODO TODO, PLEASE FIX TvT, all derefs are i32 now
+                        .typ = typ,
                     },
                 };
             },
@@ -198,6 +199,10 @@ pub const Ast = struct {
                 try self.emit(tokens, input, tables, foo, node.extra.rhs, tdx, stack_size);
                 try foo.genbinop(.div);
             },
+            .ref => {
+                const entry = try self.lvalue(tokens, input, foo, tables, tdx, node.extra.lhs);
+                try foo.genaddr(entry);
+            },
             .deref => {
                 const entry = try self.lvalue(tokens, input, foo, tables, tdx, node.extra.lhs);
                 try foo.genload(entry);
@@ -293,6 +298,7 @@ pub const Ast = struct {
             },
             .integer,
             .identifier => {},
+            .ref,
             .deref => {
                 self.debug(tokens, input, node.extra.lhs, depth+1);
             },
@@ -378,6 +384,7 @@ pub const Ast = struct {
                 try self.listLocalsDo(list, tables, tdx, node.extra.lhs);
                 try self.listLocalsDo(list, tables, tdx, node.extra.rhs);
             },
+            .ref,
             .deref => {
                 try self.listLocalsDo(list, tables, tdx, node.extra.lhs);
             },
@@ -413,6 +420,7 @@ const Node = struct {
         sub,
         mul,
         div,
+        ref,
         deref,
         assign,
         logand,
@@ -432,6 +440,7 @@ const Op = enum {
     sub,
     mul,
     div,
+    ref,
     deref,
     assign,
     logand,
@@ -449,6 +458,7 @@ const Op = enum {
             .sub => .sub,
             .mul => .mul,
             .div => .div,
+            .ref => .ref,
             .deref => .deref,
             .assign => .assign,
             .logand => .logand,
@@ -459,6 +469,7 @@ const Op = enum {
 
     fn prefixPower(self: Op) ?u8 {
         return switch (self) {
+            .ref,
             .deref => 10,
             .ret => 1,
             else => null,
@@ -645,6 +656,21 @@ fn parseExpr(
             .kind = .identifier,
             .extra = undefined
         },
+        .@"&" => b: {
+            const odx = idx.* - 1;
+            const rbp = Op.prefixPower(.ref).?;
+            const rhs = try parseExpr(tokens, input, idx, nodes, extra, tables, tdx, rbp);
+            const rnd = try pushNode(nodes, rhs);
+
+            break :b .{
+                .main = odx,
+                .kind = .ref,
+                .extra = .{
+                    .lhs = rnd,
+                    .rhs = undefined,
+                },
+            };
+        },
         .@"*" => b: {
             const odx = idx.* - 1;
             const rbp = Op.prefixPower(.deref).?;
@@ -770,6 +796,7 @@ fn parseExpr(
         },
         else => {
             idx.* -= 1;
+            //TODO TODO TODO TODO TODO TODO TODO TODO, wrong btw, still leaks
             return error.UnexpectedFirstToken;
         },
     };

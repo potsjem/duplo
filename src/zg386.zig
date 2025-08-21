@@ -171,7 +171,6 @@ pub const Foo = struct {
     //      look at ref impl
     pub fn genload(self: *Foo, lv: Ast.Local) !void {
         try self.gentext();
-
         try self.spill();
 
         switch (lv.entry.storage) {
@@ -200,18 +199,16 @@ pub const Foo = struct {
         self.acc = true;
     }
 
-    pub fn genaddr(self: *Foo, tables: SymbolTables, tdx: u32, ident: []const u8) !void {
+    pub fn genaddr(self: *Foo, lv: Ast.Local) !void {
         try self.gentext();
         try self.spill();
 
-        const entry = tables.get(tdx, ident).?;
-        switch (entry.storage) {
+        switch (lv.entry.storage) {
             .public => {
-                try self.cgldga(try gsym(ident));
+                try self.cgldga(try gsym(lv.name.?));
             },
             .auto => {
-                const addr = entry.value.?.addr;
-                try self.cgldla(addr);
+                try self.cgldla(lv.entry.value.?.addr);
             },
         }
 

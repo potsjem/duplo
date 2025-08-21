@@ -7,7 +7,7 @@ fn addb(x: i8, y: i8) i8
 fn balls() i32
     return 42;
 
-fn existance(p: i32) void {
+fn existance(p: &i32) void {
     *p = 420;
     return;
 };

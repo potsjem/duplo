@@ -56,10 +56,12 @@ pub const Type = union(enum) {
 
 pub const SymbolTables = struct {
     tables: ArrayList(SymbolTable),
+    types: ArrayList(Type),
 
     pub fn init(allocator: Allocator) SymbolTables {
         return .{
             .tables = .init(allocator),
+            .types = .init(allocator),
         };
     }
 
@@ -154,6 +156,22 @@ pub const SymbolTables = struct {
 
                 return null;
             },
+            .ref => {
+                const entry = try self.scan(tree, tokens, input, tdx, node.extra.lhs) orelse @panic("TODO, what?");
+
+                return switch (entry.typ) {
+                    .Type => .{
+                        .storage = undefined,
+                        .value = .{ .typ = .{ .pointer = .{ .child = try self.insertType(entry.value.?.typ) } } },
+                        .typ = .Type,
+                    },
+                    else => .{
+                        .storage = undefined,
+                        .value = undefined,
+                        .typ = .{ .pointer = .{ .child = try self.insertType(entry.typ) } },
+                    },
+                };
+            },
             .ret => {
                 const typ = switch (node.extra.lhs) {
                     0 => null, //TODO, Type.Void,
@@ -196,12 +214,17 @@ pub const SymbolTables = struct {
         const entry = self.tables.items[tdx];
         return entry.table.get(key) orelse if (entry.parent) |p| self.get(p, key) else null;
     }
+
+    fn insertType(self: *SymbolTables, typ: Type) !u32 {
+        const len = self.types.items.len;
+        try self.types.append(typ);
+        return @intCast(len);
+    }
 };
 
 pub const SymbolTable = struct {
     parent: ?u32,
     table: StringHashMap(Entry),
-    types: ArrayList(Type),
 
     pub const Entry = struct {
         storage: Storage,
@@ -226,7 +249,6 @@ pub const SymbolTable = struct {
         return .{
             .parent = parent,
             .table = .init(allocator),
-            .types = .init(allocator),
         };
     }
 };

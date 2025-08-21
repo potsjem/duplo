@@ -25,6 +25,7 @@ pub const Token = struct {
         @"-",
         @"*",
         @"/",
+        @"&",
         @"=",
         @"(",
         @")",
@@ -129,6 +130,15 @@ pub fn lex(allocator: Allocator, input: [:0]const u8) ![]Token {
                     idx += 1;
                     continue :state .initial;
                 },
+            },
+            '&' => {
+                try tokens.append(.{
+                    .kind = .@"&",
+                    .idx = idx,
+                });
+
+                idx += 1;
+                continue :state .initial;
             },
             '=' => {
                 try tokens.append(.{
