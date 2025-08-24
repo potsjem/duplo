@@ -80,18 +80,6 @@ pub const SymbolTables = struct {
             .root => {
                 const table = node.extra.rhs;
 
-                try self.put(0, "i8", .{
-                    .storage = undefined,
-                    .value = .{ .typ = .{ .integer = .{ .signed = true, .bits = 8 } } },
-                    .typ = .Type,
-                });
-
-                try self.put(0, "i32", .{
-                    .storage = undefined,
-                    .value = .{ .typ = .{ .integer = .{ .signed = true, .bits = 32 } } },
-                    .typ = .Type,
-                });
-
                 const roots = tree.extraSlice(node.extra.lhs);
                 for (roots) |rdx| {
                     _ = try self.scan(tree, tokens, input, table, rdx);

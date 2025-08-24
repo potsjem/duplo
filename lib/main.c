@@ -1,5 +1,6 @@
 #include <stdio.h>
 
+extern int X;
 int Dmain(void);
 int balls(void);
 int add(int, int);
@@ -11,6 +12,8 @@ int mod(int x, int y) {
 }
 
 int main(void) {
+    X = 64;
+
     int n0 = balls();
     int n1 = Dmain();
     int n2 = add(34, 35);

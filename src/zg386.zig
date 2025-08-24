@@ -37,7 +37,7 @@ const Op = enum {
 
 pub const Foo = struct {
     writer: std.io.AnyWriter,
-    segment: Segment = .data,
+    segment: Segment = .text,
     acc: bool = false,
     id: u32 = 0,
 
@@ -106,13 +106,13 @@ pub const Foo = struct {
     }
 
 
-    fn gendata(self: *Foo) !void {
+    pub fn gendata(self: *Foo) !void {
         if (self.segment != .data)
             try self.cgdata();
         self.segment = .data;
     }
 
-    fn gentext(self: *Foo) !void {
+    pub fn gentext(self: *Foo) !void {
         if (self.segment != .text)
             try self.cgtext();
         self.segment = .text;
@@ -377,8 +377,40 @@ pub const Foo = struct {
         try self.cgpop2();
     }
 
+    pub fn defglob(self: *Foo, lv: Ast.Local) !void {
+        try self.gendata();
+
+        switch (lv.entry.typ) {
+            .Type,
+            .function => return,
+            .integer => {},
+            else => |t| panic("TODO, Unhandled type: {}", .{t}),
+        }
+
+        if (lv.entry.storage == .public)
+            try self.genpublic(lv.name.?);
+
+        try self.genname(lv.name.?);
+
+        switch (lv.entry.typ) {
+            .integer => |t| switch (t.bits) {
+                32 => if (t.signed)
+                        try self.cgdefw(@bitCast(lv.entry.value.?.iint))
+                    else
+                        try self.cgdefw(lv.entry.value.?.uint),
+                else => |s| panic("Unhandled bitsize: {}", .{s}),
+            },
+            .function => {},
+            else => unreachable
+        }
+    }
+
     fn cgtext(self: *Foo) !void {
         try self.gen(".text");
+    }
+
+    fn cgdata(self: *Foo) !void {
+        try self.gen(".data");
     }
 
     fn cgpublic(self: Foo, name: []const u8) !void {
@@ -558,5 +590,13 @@ pub const Foo = struct {
             try self.ngen1("{s}\t${d},%esp", "addl", size);
         try self.gen("popl\t%ebp");
         try self.gen("ret");
+    }
+
+    fn cgdefb(self: *Foo, v: u8) !void {
+        try self.ngen1("{s}\t{d}", ".byte", v);
+    }
+
+    fn cgdefw(self: *Foo, v: u32) !void {
+        try self.ngen1("{s}\t{d}", ".long", v);
     }
 };

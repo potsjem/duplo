@@ -1,3 +1,5 @@
+let X: i32 = 32;
+
 fn add(x: i32, y: i32) i32
     return x + y;
 
@@ -5,7 +7,7 @@ fn addb(x: i8, y: i8) i8
     return x + y;
 
 fn balls() i32
-    return 42;
+    return X;
 
 fn existance(p: &i32) void {
     *p = 420;

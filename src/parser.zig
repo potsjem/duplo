@@ -12,6 +12,7 @@ const symbol = @import("symbol.zig");
 const SymbolTables = symbol.SymbolTables;
 const SymbolTable = symbol.SymbolTable;
 const Entry = SymbolTable.Entry;
+const Type = symbol.Type;
 
 const zgen = @import("zg386.zig");
 const Foo = zgen.Foo;
@@ -19,7 +20,9 @@ const Foo = zgen.Foo;
 const Error = error {
     UnexpectedToken,
     UnexpectedFirstToken,
-} || Allocator.Error;
+}
+    || Allocator.Error
+    || std.fmt.ParseIntError;
 
 pub const Ast = struct {
     nodes: []Node,
@@ -100,6 +103,17 @@ pub const Ast = struct {
                 const table = node.extra.rhs;
                 const roots = self.extraSlice(node.extra.lhs);
 
+                const instance = tables.tables.items[table];
+                var entries = instance.table.iterator();
+
+                while (entries.next()) |lv| {
+                    //std.debug.print("root glob: {s}\n", .{lv.key_ptr.*});
+                    try foo.defglob(.{
+                        .name = lv.key_ptr.*,
+                        .entry = lv.value_ptr.*,
+                    });
+                }
+
                 for (roots) |rdx| {
                     try self.emit(tokens, input, tables, foo, rdx, table, stack_size);
                 }
@@ -116,6 +130,7 @@ pub const Ast = struct {
                     size += @divExact(local.entry.typ.bits(), 8);
                 }
 
+                try foo.gentext();
                 try foo.genpublic(name);
                 try foo.genname(name);
                 try foo.genentry(size);
@@ -264,6 +279,34 @@ pub const Ast = struct {
         try foo.sgen("//end: {s}{s}", @tagName(node.kind), "");
     }
 
+    pub fn eval(
+        self: Ast,
+        tokens: []const Token,
+        input: [:0]const u8,
+        tables: SymbolTables,
+        typ: Type,
+        tdx: u32,
+        idx: u32,
+    ) !SymbolTable.Entry.Value {
+        const node = self.nodes[idx];
+
+        switch (node.kind) {
+            .integer => {
+                const slice = tokens[node.main].slice(input);
+                return if (typ.integer.signed)
+                    .{ .iint = try std.fmt.parseInt(i32, slice, 10) }
+                else
+                    .{ .uint = try std.fmt.parseInt(u32, slice, 10) };
+            },
+            .identifier => {
+                const slice = tokens[node.main].slice(input);
+                const entry = tables.get(tdx, slice) orelse panic("Unknown ident: {s}", .{slice});
+                return entry.value.?;
+            },
+            else => |k| panic("Unhandled eval: {}", .{k}),
+        }
+    }
+
     pub fn deinit(self: Ast, allocator: Allocator) void {
         allocator.free(self.nodes);
         allocator.free(self.extra);
@@ -342,6 +385,10 @@ pub const Ast = struct {
         tdx: u32,
         idx: u32
     ) !void {
+        const Ctx = struct {
+            var size: u32 = 0;
+        };
+
         const node = self.nodes[idx];
 
         switch (node.kind) {
@@ -364,10 +411,16 @@ pub const Ast = struct {
                 //TODO, add to list
                 const instance = tables.getTable(table).?;
                 var entries = instance.table.iterator();
-                while (entries.next()) |entry| {
+                while (entries.next()) |lv| {
+                    const name = lv.key_ptr.*;
+                    const entry = lv.value_ptr.*;
+
+                    Ctx.size += entry.typ.bits();
+                    lv.value_ptr.value = .{ .addr = -@as(i32, @intCast(Ctx.size)) };
+
                     try list.append(.{
-                        .name = entry.key_ptr.*,
-                        .entry = entry.value_ptr.*,
+                        .name = name,
+                        .entry = entry,
                     });
                 }
 
@@ -557,9 +610,28 @@ pub fn parse(allocator: Allocator, tokens: []const Token, input: [:0]const u8, t
     //var protos = ArrayList(FnProto).init(allocator);
     var roots = ArrayList(u32).init(allocator);
 
-    //TODO, replace root with struct
-    try nodes.append(undefined);
     const root_table = try tables.newTable(null);
+    try tables.put(0, "i8", .{
+        .storage = undefined,
+        .value = .{ .typ = .{ .integer = .{ .signed = true, .bits = 8 } } },
+        .typ = .Type,
+    });
+
+    try tables.put(0, "i32", .{
+        .storage = undefined,
+        .value = .{ .typ = .{ .integer = .{ .signed = true, .bits = 32 } } },
+        .typ = .Type,
+    });
+
+    //TODO, replace root with struct
+    try nodes.append(.{
+        .main = undefined,
+        .kind = .root,
+        .extra = .{
+            .lhs = undefined,
+            .rhs = root_table,
+        },
+    });
 
     var idx: u32 = 0;
 
@@ -617,6 +689,39 @@ pub fn parse(allocator: Allocator, tokens: []const Token, input: [:0]const u8, t
                     },
                 });
                 try roots.append(ndx);
+            },
+            .@"let" => {
+                const table = 0;
+                const power = Op.infixPower(.assign).?;
+
+                const ldx = idx;
+                try expect(tokens, &idx, .@"let");
+                try expect(tokens, &idx, .identifier);
+                try expect(tokens, &idx, .@":");
+                const typ = try parseExpr(tokens, input, &idx, &nodes, &extra, tables, table, power.rbp);
+                try expect(tokens, &idx, .@"=");
+                const expr = try parseExpr(tokens, input, &idx, &nodes, &extra, tables, table, 0);
+                try expect(tokens, &idx, .@";");
+
+                _ = ldx;
+
+                const tdx = try pushNode(&nodes, typ);
+                const edx = try pushNode(&nodes, expr);
+
+                const tree = Ast{
+                    .nodes = nodes.items,
+                    .extra = extra.items,
+                };
+
+                const tv = try tree.eval(tokens, input, tables.*, .Type, table, tdx);
+                const ev = try tree.eval(tokens, input, tables.*, tv.typ, table, edx);
+
+                const name = tokens[typ.main-2].slice(input);
+                try tables.put(table, name, .{
+                    .storage = .public,
+                    .value = ev,
+                    .typ = tv.typ
+                });
             },
             else => return error.UnexpectedToken,
         }
@@ -698,11 +803,10 @@ fn parseExpr(
                     break;
                 },
                 .@"let" => {
+                    const power = Op.infixPower(.assign).?;
+
                     const ldx = idx.*;
-                    skip(tokens, idx);
-
-                    const power = Op.assign.infixPower().?;
-
+                    try expect(tokens, idx, .@"let");
                     try expect(tokens, idx, .identifier);
                     try expect(tokens, idx, .@":");
                     const typ = try parseExpr(tokens, input, idx, nodes, extra, tables, table, power.rbp);
@@ -710,6 +814,7 @@ fn parseExpr(
                     const expr = try parseExpr(tokens, input, idx, nodes, extra, tables, table, 0);
                     try expect(tokens, idx, .@";");
 
+                    const tnd = try pushNode(nodes, typ);
                     const ind = try pushNode(nodes, .{
                         .main = ldx + 1,
                         .kind = .identifier,
@@ -727,11 +832,19 @@ fn parseExpr(
 
                     try elems.append(mnd);
 
+                    const tree = Ast{
+                        .nodes = nodes.items,
+                        .extra = extra.items,
+                    };
+
+                    const tv = try tree.eval(tokens, input, tables.*, .Type, table, tnd);
+                    const ev = try tree.eval(tokens, input, tables.*, tv.typ, table, end);
+
                     const name = tokens[typ.main-2].slice(input);
                     try tables.put(table, name, .{
                         .storage = .auto,
-                        .value = .{ .addr = -4 }, //TODO, null on init, set value later
-                        .typ = .{ .integer = .{ .bits = 32, .signed = false } },
+                        .value = ev,
+                        .typ = tv.typ,
                     });
                 },
                 else => {
