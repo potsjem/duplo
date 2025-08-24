@@ -15,7 +15,6 @@ fn existance(p: &i32) void {
 fn Dmain() i32 {
     let a: i32 = 10;
     a = 12;
-    20 - hello + 2;
     10 and 0; // 0
     10 and 2; // 1
     0 or 10; // 1

@@ -39,11 +39,6 @@ pub fn main() !void {
             .convention = .auto,
         }},
     });
-    try tables.put(0, "hello", .{
-        .storage = .auto,
-        .value = .{ .addr = 1000 },
-        .typ = .{ .integer = .{ .signed = false, .bits = 32 } },
-    });
 
     var foo = zgen.Foo{
         .writer = stdout.any(),
