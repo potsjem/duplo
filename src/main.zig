@@ -32,13 +32,6 @@ pub fn main() !void {
     ast.debug(tokens, source, 0, 0);
 
     _ = try tables.scan(ast, tokens, source, undefined, 0);
-    try tables.put(0, "mod", .{
-        .storage = .public,
-        .value = null,
-        .typ = .{ .function = .{
-            .convention = .auto,
-        }},
-    });
 
     var foo = zgen.Foo{
         .writer = stdout.any(),

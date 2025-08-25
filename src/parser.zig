@@ -68,7 +68,7 @@ pub const Ast = struct {
 
                 //TODO, check if correct behaviour
                 //      mostly in multi-level derefs
-                try foo.genload(lv);
+                try foo.genload(tables, lv);
                 //try foo.genpush();
 
                 return .{
@@ -126,8 +126,8 @@ pub const Ast = struct {
 
                 var size: u32 = 0;
                 for (locals) |local| {
-                    try foo.ngen1("//local: {s} => {d}", local.name.?, local.entry.typ.bits());
-                    size += @divExact(local.entry.typ.bits(), 8);
+                    try foo.ngen1("//local: {s} => {?d}", local.name.?, local.entry.typ.bits(tables));
+                    size += @divExact(local.entry.typ.bits(tables).?, 8);
                 }
 
                 try foo.gentext();
@@ -183,7 +183,7 @@ pub const Ast = struct {
             .identifier => {
                 const name = tokens[node.main].slice(input);
                 const entry = tables.get(tdx, name).?;
-                try foo.genload(.{ .name = name, .entry = entry });
+                try foo.genload(tables, .{ .name = name, .entry = entry });
             },
             .block => {
                 const table = node.extra.rhs;
@@ -220,13 +220,13 @@ pub const Ast = struct {
             },
             .deref => {
                 const entry = try self.lvalue(tokens, input, foo, tables, tdx, node.extra.lhs);
-                try foo.genload(entry);
+                try foo.genload(tables, entry);
             },
             .assign => {
                 const entry = try self.lvalue(tokens, input, foo, tables, tdx, node.extra.lhs);
                 try self.emit(tokens, input, tables, foo, node.extra.rhs, tdx, stack_size);
 
-                try foo.genstore(entry);
+                try foo.genstore(tables, entry);
             },
             .logand => {
                 const lab = foo.label();
@@ -274,6 +274,10 @@ pub const Ast = struct {
                     try self.emit(tokens, input, tables, foo, node.extra.lhs, tdx, stack_size);
                 try foo.genexit(stack_size);
             },
+
+            else => {
+                @panic("This node should never be emitted, if you added a new node please add its corresponding switchcase");
+            },
         }
 
         try foo.sgen("//end: {s}{s}", @tagName(node.kind), "");
@@ -283,7 +287,7 @@ pub const Ast = struct {
         self: Ast,
         tokens: []const Token,
         input: [:0]const u8,
-        tables: SymbolTables,
+        tables: *SymbolTables,
         typ: Type,
         tdx: u32,
         idx: u32,
@@ -302,6 +306,29 @@ pub const Ast = struct {
                 const slice = tokens[node.main].slice(input);
                 const entry = tables.get(tdx, slice) orelse panic("Unknown ident: {s}", .{slice});
                 return entry.value.?;
+            },
+            .structdef => {
+                const slice = self.extraSlice(node.extra.lhs);
+                const members = tables.types.items.len;
+
+                for (slice) |ndx| {
+                    const tv = try self.eval(tokens, input, tables, .Type, tdx, ndx);
+                    try tables.types.append(tv.typ);
+                }
+
+                return .{ .typ = .{ .structdef = .{
+                    .members = @intCast(members),
+                    .mbrlen = @intCast(slice.len),
+                }}};
+            },
+            .ref => {
+                switch (typ) {
+                    .Type => {
+                        const rv = try self.eval(tokens, input, tables, .Type, tdx, node.extra.lhs);
+                        return .{ .typ = .{ .pointer = .{ .child = try tables.insertType(rv.typ) } } };
+                    },
+                    else => @panic("TODO"),
+                }
             },
             else => |k| panic("Unhandled eval: {}", .{k}),
         }
@@ -341,6 +368,7 @@ pub const Ast = struct {
             },
             .integer,
             .identifier => {},
+            .structdef => @panic("TODO"),
             .ref,
             .deref => {
                 self.debug(tokens, input, node.extra.lhs, depth+1);
@@ -404,6 +432,7 @@ pub const Ast = struct {
             },
             .integer,
             .identifier => {},
+            .structdef => @panic("TODO"),
             .block => {
                 const table = node.extra.rhs;
                 const slice = self.extraSlice(node.extra.lhs);
@@ -415,7 +444,7 @@ pub const Ast = struct {
                     const name = lv.key_ptr.*;
                     const entry = lv.value_ptr.*;
 
-                    Ctx.size += entry.typ.bits();
+                    Ctx.size += entry.typ.bits(tables).?;
                     lv.value_ptr.value = .{ .addr = -@as(i32, @intCast(Ctx.size)) };
 
                     try list.append(.{
@@ -468,6 +497,7 @@ const Node = struct {
         fn_call,
         integer,
         identifier,
+        structdef,
         block,
         add,
         sub,
@@ -610,7 +640,20 @@ pub fn parse(allocator: Allocator, tokens: []const Token, input: [:0]const u8, t
     //var protos = ArrayList(FnProto).init(allocator);
     var roots = ArrayList(u32).init(allocator);
 
+    //TODO, move this to diff file
     const root_table = try tables.newTable(null);
+    try tables.put(0, "type", .{
+        .storage = undefined,
+        .value = .{ .typ = .Type },
+        .typ = .Type,
+    });
+
+    try tables.put(0, "void", .{
+        .storage = undefined,
+        .value = .{ .typ = .Void },
+        .typ = .Type,
+    });
+
     try tables.put(0, "i8", .{
         .storage = undefined,
         .value = .{ .typ = .{ .integer = .{ .signed = true, .bits = 8 } } },
@@ -621,6 +664,22 @@ pub fn parse(allocator: Allocator, tokens: []const Token, input: [:0]const u8, t
         .storage = undefined,
         .value = .{ .typ = .{ .integer = .{ .signed = true, .bits = 32 } } },
         .typ = .Type,
+    });
+
+    try tables.put(0, "malloc", .{
+        .storage = .public,
+        .value = null,
+        .typ = .{ .function = .{
+            .convention = .auto,
+        }},
+    });
+
+    try tables.put(0, "mod", .{
+        .storage = .public,
+        .value = null,
+        .typ = .{ .function = .{
+            .convention = .auto,
+        }},
     });
 
     //TODO, replace root with struct
@@ -713,8 +772,8 @@ pub fn parse(allocator: Allocator, tokens: []const Token, input: [:0]const u8, t
                     .extra = extra.items,
                 };
 
-                const tv = try tree.eval(tokens, input, tables.*, .Type, table, tdx);
-                const ev = try tree.eval(tokens, input, tables.*, tv.typ, table, edx);
+                const tv = try tree.eval(tokens, input, tables, .Type, table, tdx);
+                const ev = try tree.eval(tokens, input, tables, tv.typ, table, edx);
 
                 const name = tokens[typ.main-2].slice(input);
                 try tables.put(table, name, .{
@@ -837,8 +896,8 @@ fn parseExpr(
                         .extra = extra.items,
                     };
 
-                    const tv = try tree.eval(tokens, input, tables.*, .Type, table, tnd);
-                    const ev = try tree.eval(tokens, input, tables.*, tv.typ, table, end);
+                    const tv = try tree.eval(tokens, input, tables, .Type, table, tnd);
+                    const ev = try tree.eval(tokens, input, tables, tv.typ, table, end);
 
                     const name = tokens[typ.main-2].slice(input);
                     try tables.put(table, name, .{
@@ -882,6 +941,43 @@ fn parseExpr(
                 .kind = .ret,
                 .extra = .{
                     .lhs = rnd,
+                    .rhs = undefined,
+                },
+            };
+        },
+        .@"struct" => b: {
+            const odx = idx.* - 1;
+            var members = ArrayList(u32).init(extra.allocator);
+
+            try expect(tokens, idx, .@"{");
+
+            while (true) switch (peek(tokens, idx).kind) {
+                .@"}" => {
+                    skip(tokens, idx);
+                    break;
+                },
+                else => {
+                    try expect(tokens, idx, .identifier);
+                    try expect(tokens, idx, .@":");
+                    const typ = try parseExpr(tokens, input, idx, nodes, extra, tables, tdx, 0);
+                    const tnd = try pushNode(nodes, typ);
+                    try members.append(tnd);
+
+                    switch (next(tokens, idx).kind) {
+                        .@"," => {},
+                        .@"}" => break,
+                        else => return error.UnexpectedToken,
+                    }
+                },
+            };
+
+            const mnd = try pushExtraList(extra, &members);
+
+            break :b .{
+                .main = odx,
+                .kind = .structdef,
+                .extra = .{
+                    .lhs = mnd,
                     .rhs = undefined,
                 },
             };

@@ -1,5 +1,11 @@
 let X: i32 = 32;
 
+let Foo: type = struct {
+    x: i32,
+    y: i32,
+    z: i32,
+};
+
 fn add(x: i32, y: i32) i32
     return x + y;
 
@@ -12,6 +18,11 @@ fn balls() i32
 fn existance(p: &i32) void {
     *p = 420;
     return;
+};
+
+fn structo() i32 {
+    let foo: &Foo = X;
+    return 0;
 };
 
 fn Dmain() i32 {

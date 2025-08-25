@@ -36,6 +36,7 @@ pub const Token = struct {
         @",",
         @"fn",
         @"return",
+        @"struct",
         @"and",
         @"or",
         @"if",

@@ -140,10 +140,13 @@ pub const Foo = struct {
     }
 
     //NOTE, diff impl than ref
-    pub fn genstore(self: *Foo, lv: Ast.Local) !void {
+    pub fn genstore(self: *Foo, tables: SymbolTables, lv: Ast.Local) !void {
         try self.gentext();
 
-        const name = lv.name orelse switch (lv.entry.typ.bits()) {
+        if (lv.entry.typ == .structdef)
+            @panic("Not supporting structs fully yet");
+
+        const name = lv.name orelse switch (lv.entry.typ.bits(tables).?) {
             32 => {
                 try self.cgpopptr();
                 try self.cgstoriw();
@@ -155,13 +158,13 @@ pub const Foo = struct {
         _ = name;
 
         switch (lv.entry.storage) {
-            .auto => switch (lv.entry.typ.bits()) {
+            .auto => switch (lv.entry.typ.bits(tables).?) {
                 32 => {
                     try self.cgstorlw(lv.entry.value.?.addr);
                 },
                 else => |s| panic("Unhandled bitsize: {}", .{s}),
             },
-            else => switch (lv.entry.typ.bits()) {
+            else => switch (lv.entry.typ.bits(tables).?) {
                 else => |s| panic("Unhandled bitsize: {}", .{s}),
             },
         }
@@ -169,12 +172,15 @@ pub const Foo = struct {
 
     //TODO, finish
     //      look at ref impl
-    pub fn genload(self: *Foo, lv: Ast.Local) !void {
+    pub fn genload(self: *Foo, tables: SymbolTables, lv: Ast.Local) !void {
         try self.gentext();
         try self.spill();
 
+        if (lv.entry.typ == .structdef)
+            @panic("Not supporting structs fully yet");
+
         switch (lv.entry.storage) {
-            .public => switch (lv.entry.typ.bits()) {
+            .public => switch (lv.entry.typ.bits(tables).?) {
                 8 => {
                     try self.cgclear();
                     try self.cgldgb(try gsym(lv.name.?));
@@ -184,7 +190,7 @@ pub const Foo = struct {
                 },
                 else => |s| panic("Unhandled bitsize: {}", .{s}),
             },
-            .auto => switch (lv.entry.typ.bits()) {
+            .auto => switch (lv.entry.typ.bits(tables).?) {
                 8 => {
                     try self.cgclear();
                     try self.cgldlb(lv.entry.value.?.addr);

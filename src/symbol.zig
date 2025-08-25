@@ -18,6 +18,7 @@ pub const Type = union(enum) {
     integer: Integer,
     pointer: Pointer,
     function: Function,
+    structdef: Struct,
 
     const Integer = struct {
         signed: bool,
@@ -38,11 +39,16 @@ pub const Type = union(enum) {
         };
     };
 
+    const Struct = struct {
+        members: u32,
+        mbrlen: u32,
+    };
+
     //NOTE, Constants
     pub const I8  = Type{ .integer = .{ .signed = true, .bits = 8  } };
     pub const I32 = Type{ .integer = .{ .signed = true, .bits = 32 } };
 
-    pub fn bits(self: Type) u32 {
+    pub fn bits(self: Type, tables: SymbolTables) ?u32 {
         return switch (self) {
             .Type,
             .Noreturn => @panic("TODO"),
@@ -50,6 +56,19 @@ pub const Type = union(enum) {
             .integer => |i| i.bits,
             .pointer,
             .function => 32,
+            .structdef => |sd| {
+                const types = tables.types.items[sd.members..sd.members+sd.mbrlen];
+                var size: u32 = 0;
+
+                for (types) |typ| {
+                    if (typ.bits(tables)) |b|
+                        size += b
+                    else
+                        return null;
+                }
+
+                return size;
+            },
         };
     }
 };
@@ -203,7 +222,7 @@ pub const SymbolTables = struct {
         return entry.table.get(key) orelse if (entry.parent) |p| self.get(p, key) else null;
     }
 
-    fn insertType(self: *SymbolTables, typ: Type) !u32 {
+    pub fn insertType(self: *SymbolTables, typ: Type) !u32 {
         const len = self.types.items.len;
         try self.types.append(typ);
         return @intCast(len);
