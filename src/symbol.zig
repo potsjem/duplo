@@ -40,6 +40,8 @@ pub const Type = union(enum) {
     };
 
     const Struct = struct {
+        //TODO, rename
+        omfgidk: u32,
         members: u32,
         mbrlen: u32,
     };

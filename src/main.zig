@@ -41,7 +41,7 @@ pub fn main() !void {
     //try foo.genname("main");
 
     //try foo.genentry();
-    try ast.emit(tokens, source, tables, &foo, 0, undefined, undefined);
+    try ast.emit(tokens, source, &tables, &foo, 0, undefined, undefined);
 
     try foo.genraw(".section .note.GNU-stack,\"\"");
 

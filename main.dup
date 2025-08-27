@@ -20,9 +20,8 @@ fn existance(p: &i32) void {
     return;
 };
 
-fn structo() i32 {
-    let foo: &Foo = X;
-    return 0;
+fn structo(foo: &Foo) i32 {
+    return foo.y;
 };
 
 fn Dmain() i32 {

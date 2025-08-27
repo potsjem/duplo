@@ -6,6 +6,7 @@ const Ast = Parser.Ast;
 
 const symbol = @import("symbol.zig");
 const SymbolTables = symbol.SymbolTables;
+const Type = symbol.Type;
 
 const GPREFIX = ' ';
 const LPREFIX = 'L';
@@ -335,6 +336,17 @@ pub const Foo = struct {
         try self.cgbool();
     }
 
+    //TODO, think about typ vs bits
+    pub fn genind(self: *Foo, bits: u32) !void {
+        try self.gentext();
+
+        switch (bits) {
+            8 => try self.cgindb(),
+            32 => try self.cgindw(),
+            else => |s| panic("Unhandled bitsize: {}", .{s}),
+        }
+    }
+
     pub fn genjump(self: *Foo, id: u32) !void {
         try self.gentext();
         try self.cgjump(id);
@@ -574,6 +586,16 @@ pub const Foo = struct {
 
     fn cgbrfalse(self: *Foo, id: u32) !void {
         try self.cgbr("jz", id);
+    }
+
+    fn cgindb(self: *Foo) !void {
+        try self.gen("movl\t%eax,%edx");
+        try self.cgclear();
+        try self.gen("movb\t(%edx),%al");
+    }
+
+    fn cgindw(self: *Foo) !void {
+        try self.gen("movl\t(%eax),%eax");
     }
 
     fn cgjump(self: *Foo, id: u32) !void {

@@ -44,7 +44,7 @@ pub const Ast = struct {
         tokens: []const Token,
         input: [:0]const u8,
         foo: *Foo,
-        tables: SymbolTables,
+        tables: *const SymbolTables,
         tdx: u32,
         idx: u32,
     ) !Local {
@@ -68,7 +68,7 @@ pub const Ast = struct {
 
                 //TODO, check if correct behaviour
                 //      mostly in multi-level derefs
-                try foo.genload(tables, lv);
+                try foo.genload(tables.*, lv);
                 //try foo.genpush();
 
                 return .{
@@ -89,7 +89,7 @@ pub const Ast = struct {
         self: Ast,
         tokens: []const Token,
         input: [:0]const u8,
-        tables: SymbolTables,
+        tables: *SymbolTables,
         foo: *Foo,
         idx: u32,
         tdx: u32,
@@ -122,12 +122,12 @@ pub const Ast = struct {
                 const table = self.extra[node.extra.rhs];
                 const name = tokens[node.main+1].slice(input);
 
-                const locals = try self.listLocals(tables, table, node.extra.lhs);
+                const locals = try self.listLocals(tables.*, table, node.extra.lhs);
 
                 var size: u32 = 0;
                 for (locals) |local| {
-                    try foo.ngen1("//local: {s} => {?d}", local.name.?, local.entry.typ.bits(tables));
-                    size += @divExact(local.entry.typ.bits(tables).?, 8);
+                    try foo.ngen1("//local: {s} => {?d}", local.name.?, local.entry.typ.bits(tables.*));
+                    size += @divExact(local.entry.typ.bits(tables.*).?, 8);
                 }
 
                 try foo.gentext();
@@ -183,7 +183,7 @@ pub const Ast = struct {
             .identifier => {
                 const name = tokens[node.main].slice(input);
                 const entry = tables.get(tdx, name).?;
-                try foo.genload(tables, .{ .name = name, .entry = entry });
+                try foo.genload(tables.*, .{ .name = name, .entry = entry });
             },
             .block => {
                 const table = node.extra.rhs;
@@ -214,19 +214,54 @@ pub const Ast = struct {
                 try self.emit(tokens, input, tables, foo, node.extra.rhs, tdx, stack_size);
                 try foo.genbinop(.div);
             },
+            .dot => {
+                const member = tokens[node.main+1].slice(input);
+
+                //TODO, refactor...... TvT
+                //TODO, find a way to get the type without allocation
+                const entry = try tables.scan(self, tokens, input, tdx, node.extra.lhs) orelse @panic("TODO?");
+                const offset = b: switch (entry.typ) {
+                    .pointer => |p| {
+                        const typ = tables.types.items[p.child];
+                        switch (typ) {
+                            .structdef => |sd| {
+                                var size: u32 = 0;
+                                const slice = self.extraSlice(sd.omfgidk);
+                                const types = tables.types.items[sd.members..sd.members+sd.mbrlen];
+
+                                for (slice, types) |ndx, t| {
+                                    const ident = tokens[self.nodes[ndx].main-2].slice(input);
+                                    if (std.mem.eql(u8, ident, member)) break :b size;
+                                    std.debug.print("identtt: {s}\n", .{ident});
+                                    size += @divExact(t.bits(tables.*).?, 8);
+                                }
+
+                                @panic("NO.");
+                            },
+                            else => @panic("TODO"),
+                        }
+                    },
+                    else => @panic("TODO"),
+                };
+
+                try self.emit(tokens, input, tables, foo, node.extra.lhs, tdx, stack_size);
+                try foo.genlit(offset);
+                try foo.genbinop(.add);
+                try foo.genind(entry.typ.bits(tables.*).?);
+            },
             .ref => {
                 const entry = try self.lvalue(tokens, input, foo, tables, tdx, node.extra.lhs);
                 try foo.genaddr(entry);
             },
             .deref => {
                 const entry = try self.lvalue(tokens, input, foo, tables, tdx, node.extra.lhs);
-                try foo.genload(tables, entry);
+                try foo.genload(tables.*, entry);
             },
             .assign => {
                 const entry = try self.lvalue(tokens, input, foo, tables, tdx, node.extra.lhs);
                 try self.emit(tokens, input, tables, foo, node.extra.rhs, tdx, stack_size);
 
-                try foo.genstore(tables, entry);
+                try foo.genstore(tables.*, entry);
             },
             .logand => {
                 const lab = foo.label();
@@ -317,6 +352,7 @@ pub const Ast = struct {
                 }
 
                 return .{ .typ = .{ .structdef = .{
+                    .omfgidk = node.extra.lhs,
                     .members = @intCast(members),
                     .mbrlen = @intCast(slice.len),
                 }}};
@@ -373,6 +409,12 @@ pub const Ast = struct {
             .deref => {
                 self.debug(tokens, input, node.extra.lhs, depth+1);
             },
+            .dot => {
+                self.debug(tokens, input, node.extra.lhs, depth+1);
+                for (0..depth+1) |_|
+                    std.debug.print("  ", .{});
+                std.debug.print("{s}\n", .{tokens[node.main+1].slice(input)});
+            },
             .add,
             .sub,
             .mul,
@@ -401,8 +443,9 @@ pub const Ast = struct {
     }
 
     fn listLocals(self: Ast, tables: SymbolTables, tdx: u32, idx: u32) ![]Local {
+        var size: u32 = 0;
         var locals = ArrayList(Local).init(tables.tables.allocator);
-        try self.listLocalsDo(&locals, tables, tdx, idx);
+        try self.listLocalsDo(&locals, tables, tdx, idx, &size);
         return locals.toOwnedSlice();
     }
 
@@ -411,23 +454,20 @@ pub const Ast = struct {
         list: *ArrayList(Local),
         tables: SymbolTables,
         tdx: u32,
-        idx: u32
+        idx: u32,
+        stack_size: *u32,
     ) !void {
-        const Ctx = struct {
-            var size: u32 = 0;
-        };
-
         const node = self.nodes[idx];
 
         switch (node.kind) {
             .root,
             .fn_decl => unreachable,
             .fn_call => {
-                try self.listLocalsDo(list, tables, tdx, node.extra.lhs);
+                try self.listLocalsDo(list, tables, tdx, node.extra.lhs, stack_size);
 
                 for (self.extraSlice(node.extra.rhs)) |arg| switch (arg) {
                     0 => {},
-                    else => try self.listLocalsDo(list, tables, tdx, arg),
+                    else => try self.listLocalsDo(list, tables, tdx, arg, stack_size),
                 };
             },
             .integer,
@@ -444,8 +484,8 @@ pub const Ast = struct {
                     const name = lv.key_ptr.*;
                     const entry = lv.value_ptr.*;
 
-                    Ctx.size += entry.typ.bits(tables).?;
-                    lv.value_ptr.value = .{ .addr = -@as(i32, @intCast(Ctx.size)) };
+                    stack_size.* += @divExact(entry.typ.bits(tables).?, 8);
+                    lv.value_ptr.value = .{ .addr = -@as(i32, @intCast(stack_size.*)) };
 
                     try list.append(.{
                         .name = name,
@@ -454,7 +494,7 @@ pub const Ast = struct {
                 }
 
                 for (slice) |ndx| {
-                    try self.listLocalsDo(list, tables, table, ndx);
+                    try self.listLocalsDo(list, tables, table, ndx, stack_size);
                 }
             },
             .add,
@@ -463,24 +503,25 @@ pub const Ast = struct {
             .div,
             .logand,
             .logior => {
-                try self.listLocalsDo(list, tables, tdx, node.extra.lhs);
-                try self.listLocalsDo(list, tables, tdx, node.extra.rhs);
+                try self.listLocalsDo(list, tables, tdx, node.extra.lhs, stack_size);
+                try self.listLocalsDo(list, tables, tdx, node.extra.rhs, stack_size);
             },
+            .dot,
             .ref,
             .deref => {
-                try self.listLocalsDo(list, tables, tdx, node.extra.lhs);
+                try self.listLocalsDo(list, tables, tdx, node.extra.lhs, stack_size);
             },
             .assign => {
-                try self.listLocalsDo(list, tables, tdx, node.extra.rhs);
+                try self.listLocalsDo(list, tables, tdx, node.extra.rhs, stack_size);
             },
             .ternary => {
-                try self.listLocalsDo(list, tables, tdx, node.extra.lhs);
-                try self.listLocalsDo(list, tables, tdx, node.extra.rhs);
-                try self.listLocalsDo(list, tables, tdx, node.extra.rhs+1);
+                try self.listLocalsDo(list, tables, tdx, node.extra.lhs, stack_size);
+                try self.listLocalsDo(list, tables, tdx, node.extra.rhs, stack_size);
+                try self.listLocalsDo(list, tables, tdx, node.extra.rhs+1, stack_size);
             },
             .ret => {
                 if (node.extra.lhs != 0)
-                    try self.listLocalsDo(list, tables, tdx, node.extra.lhs);
+                    try self.listLocalsDo(list, tables, tdx, node.extra.lhs, stack_size);
             },
         }
     }
@@ -503,6 +544,7 @@ const Node = struct {
         sub,
         mul,
         div,
+        dot,
         ref,
         deref,
         assign,
@@ -1021,10 +1063,8 @@ fn parseExpr(
             .@"and" => .logand,
             .@"or" => .logior,
             .@"(" => {
-                //TODO, add args
-                try expect(tokens, idx, .@"(");
-
                 var args = ArrayList(u32).init(extra.allocator);
+                skip(tokens, idx);
 
                 while (true) switch (peek(tokens, idx).kind) {
                     .@"," => {
@@ -1057,6 +1097,23 @@ fn parseExpr(
                     .extra = .{
                         .lhs = lnd,
                         .rhs = gnd,
+                    },
+                };
+
+                continue;
+            },
+            .@"." => {
+                skip(tokens, idx);
+                try expect(tokens, idx, .identifier);
+
+                const lnd = try pushNode(nodes, lhs);
+
+                lhs = .{
+                    .main = odx,
+                    .kind = .dot,
+                    .extra = .{
+                        .lhs = lnd,
+                        .rhs = undefined,
                     },
                 };
 
